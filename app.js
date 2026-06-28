@@ -87,6 +87,24 @@ document.getElementById('back-from-not-leader-btn').addEventListener('click', ()
   show('welcome-screen');
 });
 
+document.getElementById('form-back-btn').addEventListener('click', () => {
+  currentParty = null;
+  document.getElementById('rsvp-form').reset();
+  document.getElementById('guests-container').innerHTML = '';
+  setError('form-error', '');
+  show('welcome-screen');
+});
+
+document.getElementById('return-home-btn').addEventListener('click', () => {
+  currentParty = null;
+  document.getElementById('name-input').value = '';
+  document.getElementById('rsvp-form').reset();
+  document.getElementById('guests-container').innerHTML = '';
+  setError('welcome-error', '');
+  setError('form-error', '');
+  show('welcome-screen');
+});
+
 // ---------- Screen 2: Form rendering ----------
 
 // Union of every event any guest in the party is invited to, for the summary block.
