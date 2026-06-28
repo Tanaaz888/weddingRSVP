@@ -23,16 +23,20 @@
  *      it the same way on every row in the party).
  *
  *  Writable (the form fills these in — leave blank, just have the header):
- *    Full Name | Phone number | Travelling from overseas |
+ *    Full Name | Phone Number | Travelling from Overseas |
  *    Arrival Flight Number | Arrival Travel Date | Arrival Travel Time | Arrival Airport |
  *    Identification 1 | Identification 2 | Identification 3
  *
- *    - "Travelling from overseas" is a Yes/No tickbox on the form. The arrival
+ *    - "Travelling from Overseas" is a Yes/No tickbox on the form. The arrival
  *      flight fields are only filled in (and only required) if that's Yes —
  *      otherwise they're left blank.
  *
- *  The script will also AUTO-ADD these columns the first time someone submits:
- *    "<Event> - Attending"  (one per event, e.g. "Mehndi - Attending")
+ *  On the FIRST submission to the sheet, the script auto-adds these columns
+ *  right after "Arrival Airport", in this fixed order, all at once — so the
+ *  layout never depends on which event someone happens to RSVP for first:
+ *    Mehndi - Attending | Haldi - Attending | Sangeet - Attending |
+ *    Vidhi - Attending | Tea ceremony - Attending | Dinner - Attending
+ *  ...followed by Identification 1 / 2 / 3 at the very end.
  *
  *  If a guest uploads MORE than 3 verification photos, photos 4+ get appended
  *  into the "Identification 3" cell (one link per line) so nothing is lost.
@@ -219,16 +223,27 @@ function submitRsvp(payload) {
   let headers = getHeaders(sheet);
   const folder = getOrCreateUploadFolder();
 
+  // Fix the column structure up front, in order, so it never depends on
+  // which events happen to be submitted first: all "<Event> - Attending"
+  // columns (in EVENT_COLUMNS order) come right after the arrival info,
+  // then Identification 1/2/3 at the very end.
+  EVENT_COLUMNS.forEach(eventName => {
+    ensureColumn(sheet, headers, `${eventName} - Attending`);
+  });
+  ['Identification 1', 'Identification 2', 'Identification 3'].forEach(colName => {
+    ensureColumn(sheet, headers, colName);
+  });
+
   payload.guests.forEach(guest => {
     const match = findRowByName(sheet, headers, guest.name);
     if (!match) return; // skip unknown guest rows defensively
     const rowNum = match.rowNum;
 
     writeCell(sheet, headers, rowNum, 'Full Name', guest.fullName || '');
-    writeCell(sheet, headers, rowNum, 'Phone number', guest.phone || '');
+    writeCell(sheet, headers, rowNum, 'Phone Number', guest.phone || '');
 
     const isOverseas = String(guest.travellingOverseas || '').trim().toLowerCase() === 'yes';
-    writeCell(sheet, headers, rowNum, 'Travelling from overseas', isOverseas ? 'Yes' : 'No');
+    writeCell(sheet, headers, rowNum, 'Travelling from Overseas', isOverseas ? 'Yes' : 'No');
     writeCell(sheet, headers, rowNum, 'Arrival Flight Number', isOverseas ? (guest.arrivalFlightNumber || '') : '');
     writeCell(sheet, headers, rowNum, 'Arrival Travel Date', isOverseas ? (guest.arrivalDate || '') : '');
     writeCell(sheet, headers, rowNum, 'Arrival Travel Time', isOverseas ? (guest.arrivalTime || '') : '');
@@ -256,9 +271,7 @@ function submitRsvp(payload) {
       }
     });
 
-    ['Identification 1', 'Identification 2', 'Identification 3'].forEach(colName => {
-      ensureColumn(sheet, headers, colName);
-    });
+
     if (links.length > 0) writeCell(sheet, headers, rowNum, 'Identification 1', links[0] || '');
     if (links.length > 1) writeCell(sheet, headers, rowNum, 'Identification 2', links[1] || '');
     if (links.length > 2) writeCell(sheet, headers, rowNum, 'Identification 3', links.slice(2).join('\n'));
