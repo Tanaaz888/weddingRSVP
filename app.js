@@ -57,8 +57,14 @@ async function findParty() {
     const res = await fetch(`${API_URL}?action=getParty&name=${encodeURIComponent(name)}`);
     const data = await res.json();
 
-    if (data.error) {
-      setError('welcome-error', data.error);
+    if (data.status === 'not_leader') {
+      document.getElementById('leader-name-display').textContent = data.leaderName;
+      show('not-leader-screen');
+      return;
+    }
+
+    if (data.status !== 'ok') {
+      setError('welcome-error', data.error || 'We could not find that name on the guest list. Please check the spelling or contact Han Seng or Tanaaz.');
       return;
     }
 
@@ -76,6 +82,10 @@ async function findParty() {
     btn.textContent = 'Continue';
   }
 }
+
+document.getElementById('back-from-not-leader-btn').addEventListener('click', () => {
+  show('welcome-screen');
+});
 
 // ---------- Screen 2: Form rendering ----------
 

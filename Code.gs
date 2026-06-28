@@ -4,11 +4,18 @@
  * YOUR SHEET (tab name set in SHEET_NAME below) — ONE ROW PER PERSON:
  *
  *  Readable (you pre-fill these before sharing the site):
- *    Name | Party name | Mehndi | Haldi | Sangeet | Vidhi | Tea ceremony | Dinner
+ *    Name | Party name | POC | Mehndi | Haldi | Sangeet | Vidhi | Tea ceremony | Dinner
  *
  *    - "Name": that row's person, exactly as they'll type it on the site.
- *    - "Party name": comma-separated list of every name in their group
- *      (it's fine to include their own name in the list too).
+ *    - "Party name": a SHARED label/ID for the group — put the exact same
+ *      value on every row that belongs to the same party (e.g. "Mehta
+ *      Family" on every row for that family). This is NOT a list of names
+ *      anymore — everyone with the same Party name is grouped together.
+ *    - "POC": the name of the party leader for that party — put the SAME
+ *      value (the leader's exact Name) on every row in that party. ONLY the
+ *      person whose own Name matches the POC value can open the RSVP form
+ *      and fill it in for the whole party. Everyone else in the party who
+ *      tries gets redirected to a "please ask your party leader" page.
  *    - Mehndi/Haldi/etc: tick = TRUE (checkbox) or "Yes" if the PARTY is
  *      invited to that event. Every person in the same party gets the same
  *      events to confirm — tick it on at least one row in the party and
@@ -108,56 +115,84 @@ function findRowByName(sheet, headers, name) {
   return null;
 }
 
-/** Find a party: look up the typed name, read their "Party name" cell, then
- *  resolve every name in that list to find which events each is invited to. */
+/** Every row whose "Party name" matches (case/space-insensitive). */
+function findRowsByPartyName(sheet, headers, partyName) {
+  const partyCol = colIndex(headers, 'Party name');
+  if (partyCol === -1) throw new Error('Sheet is missing a "Party name" column.');
+  const data = sheet.getDataRange().getValues();
+  const search = String(partyName).trim().toLowerCase();
+  const rows = [];
+  for (let r = 1; r < data.length; r++) {
+    if (String(data[r][partyCol]).trim().toLowerCase() === search) {
+      rows.push({ rowNum: r + 1, rowData: data[r] });
+    }
+  }
+  return rows;
+}
+
+/** Look up the typed name, find everyone sharing the same Party name, and
+ *  check whether the typed name is that party's designated leader (POC). */
 function getPartyByName(typedName) {
-  if (!typedName) return { error: 'Please enter a name.' };
+  if (!typedName) return { status: 'error', error: 'Please enter a name.' };
 
   const sheet = getSheet();
   const headers = getHeaders(sheet);
   const match = findRowByName(sheet, headers, typedName);
 
   if (!match) {
-    return { error: 'We could not find that name on the guest list. Please check the spelling or contact Han Seng or Tanaaz.' };
+    return {
+      status: 'not_found',
+      error: 'We could not find that name on the guest list. Please check the spelling or contact Han Seng or Tanaaz.'
+    };
   }
 
-  const partyNameCol = colIndex(headers, 'Party name');
-  let partyNames = [];
-  if (partyNameCol !== -1) {
-    const raw = String(match.rowData[partyNameCol] || '');
-    partyNames = raw.split(',').map(n => n.trim()).filter(Boolean);
-  }
-  // Always include the person who searched, even if "Party name" was left blank.
-  const ownName = String(match.rowData[colIndex(headers, 'Name')]).trim();
-  if (!partyNames.some(n => n.toLowerCase() === ownName.toLowerCase())) {
-    partyNames.unshift(ownName);
+  const nameCol = colIndex(headers, 'Name');
+  const partyCol = colIndex(headers, 'Party name');
+  const pocCol = colIndex(headers, 'POC');
+  const ownName = String(match.rowData[nameCol]).trim();
+  const partyName = partyCol !== -1 ? String(match.rowData[partyCol] || '').trim() : '';
+
+  if (!partyName) {
+    return { status: 'error', error: 'Your party name is not set up yet. Please contact Han Seng or Tanaaz.' };
   }
 
-  // Event invites are at the PARTY level — union the tickboxes across every
-  // row in the party, then every guest gets the same set of events to confirm.
+  const partyRows = findRowsByPartyName(sheet, headers, partyName);
+  let leaderName = '';
+  if (pocCol !== -1) {
+    for (const r of partyRows) {
+      const v = String(r.rowData[pocCol] || '').trim();
+      if (v) { leaderName = v; break; }
+    }
+  }
+
+  if (!leaderName) {
+    return { status: 'error', error: 'Your party leader is not set up yet. Please contact Han Seng or Tanaaz.' };
+  }
+
+  if (ownName.toLowerCase() !== leaderName.toLowerCase()) {
+    return { status: 'not_leader', leaderName: leaderName };
+  }
+
+  // Event invites are at the PARTY level — union the tickboxes across every row in the party.
   const invitedEvents = EVENT_COLUMNS.filter(eventName => {
     const c = colIndex(headers, eventName);
     if (c === -1) return false;
-    return partyNames.some(name => {
-      const m = findRowByName(sheet, headers, name);
-      if (!m) return false;
-      const val = m.rowData[c];
+    return partyRows.some(r => {
+      const val = r.rowData[c];
       return val === true || String(val).trim().toLowerCase() === 'yes' || String(val).trim().toLowerCase() === 'true';
     });
   }).map(eventName => ({ name: eventName, dateTime: EVENT_INFO[eventName] || '' }));
 
-  const guests = [];
-  partyNames.forEach(name => {
-    const guestMatch = findRowByName(sheet, headers, name);
-    if (!guestMatch) return; // skip names that don't resolve to a row
-    guests.push({ name: name, invitedEvents: invitedEvents });
-  });
+  const guests = partyRows.map(r => ({
+    name: String(r.rowData[nameCol]).trim(),
+    invitedEvents: invitedEvents
+  }));
 
   if (!guests.length) {
-    return { error: 'We found your name, but could not resolve your party. Please contact Han Seng or Tanaaz.' };
+    return { status: 'error', error: 'We found your name, but could not resolve your party. Please contact Han Seng or Tanaaz.' };
   }
 
-  return { matchedName: ownName, guests: guests };
+  return { status: 'ok', matchedName: ownName, guests: guests };
 }
 
 /**
