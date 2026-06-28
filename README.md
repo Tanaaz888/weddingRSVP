@@ -25,7 +25,7 @@ One tab, one row per person. Header row exactly like this (order doesn't matter,
 
 **Writable — leave these columns blank, the form fills them in:**
 
-`Full Name | Phone number | Travelling from overseas | Arrival Flight Number | Arrival Travel Date | Arrival Travel Time | Arrival Airport | Identification 1 | Identification 2 | Identification 3`
+`Full Name | Phone Number | Travelling from Overseas | Arrival Flight Number | Arrival Travel Date | Arrival Travel Time | Arrival Airport | Identification 1 | Identification 2 | Identification 3`
 
 - **Full Name**: labeled on the form as "Full name", with a helper line underneath saying "Full name as per passport".
 - **Travelling from overseas**: Yes/No, set by a tickbox on the form. The four "Arrival..." columns are only filled in if that's ticked Yes — otherwise they're left blank and the form greys those fields out (disabled, not required).
@@ -33,6 +33,10 @@ One tab, one row per person. Header row exactly like this (order doesn't matter,
 The script will also **automatically add** one column per event the first time anyone submits, e.g. `Mehndi - Attending`, `Haldi - Attending` — that's where each person's Yes/No lands.
 
 > If someone uploads more than 3 ID photos, photos 4 and onward get appended into the `Identification 3` cell (one link per line) so nothing is lost — they're not dropped.
+
+> Verification photos are saved into Drive under a folder named "RSVP Uploads - Han Seng & Tanaaz", with a **separate subfolder for each guest** (named after their full name) inside it — so every person's photos stay together and are easy to find.
+
+> On the form itself, guests can add photos in multiple batches (it doesn't replace previously added ones), see a small thumbnail preview of each, and remove any individual one with the ✕ button before submitting.
 
 ## 2. Set the event date/times in the script
 

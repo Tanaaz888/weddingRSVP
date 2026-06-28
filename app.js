@@ -190,12 +190,13 @@ function renderGuestForms(guests) {
 
       <label>Photo(s) for verification (Passport / Visa / OCI / Aadhar card)<span class="req">*</span> <span style="font-weight:400;">(upload as many as needed)</span></label>
       <div class="file-input-wrap">
-        Tap to upload photo(s)
-        <input type="file" class="id-files" accept="image/*,application/pdf" multiple required />
-        <div class="file-list"></div>
+        <input type="file" class="id-files-input" accept="image/*,application/pdf" multiple style="display:none" />
+        <button type="button" class="add-files-btn">+ Add Attachment(s)</button>
+        <div class="file-previews"></div>
       </div>
     `;
     container.appendChild(card);
+    card._idFiles = []; // each guest card keeps its own in-memory list of selected files
   });
 
   container.querySelectorAll('.overseas-checkbox').forEach(checkbox => {
@@ -210,16 +211,58 @@ function renderGuestForms(guests) {
     });
   });
 
-  container.querySelectorAll('.id-files').forEach(input => {
-    input.addEventListener('change', () => {
-      const listEl = input.parentElement.querySelector('.file-list');
-      listEl.innerHTML = '';
-      Array.from(input.files).forEach(f => {
-        const d = document.createElement('div');
-        d.textContent = `✓ ${f.name}`;
-        listEl.appendChild(d);
-      });
+  container.querySelectorAll('.guest-card').forEach(card => {
+    const hiddenInput = card.querySelector('.id-files-input');
+    const addBtn = card.querySelector('.add-files-btn');
+
+    addBtn.addEventListener('click', () => hiddenInput.click());
+
+    hiddenInput.addEventListener('change', () => {
+      Array.from(hiddenInput.files).forEach(file => card._idFiles.push(file));
+      hiddenInput.value = ''; // reset so the same file can be re-added later if removed
+      renderFilePreviews(card);
     });
+  });
+}
+
+function renderFilePreviews(card) {
+  const wrap = card.querySelector('.file-previews');
+  wrap.innerHTML = '';
+
+  card._idFiles.forEach((file, index) => {
+    const item = document.createElement('div');
+    item.className = 'file-preview-item';
+
+    const thumb = document.createElement('div');
+    thumb.className = 'file-preview-thumb';
+    if (file.type && file.type.startsWith('image/')) {
+      const img = document.createElement('img');
+      img.src = URL.createObjectURL(file);
+      img.onload = () => URL.revokeObjectURL(img.src);
+      thumb.appendChild(img);
+    } else {
+      thumb.textContent = 'PDF';
+      thumb.classList.add('file-preview-thumb-pdf');
+    }
+
+    const label = document.createElement('div');
+    label.className = 'file-preview-name';
+    label.textContent = file.name;
+
+    const removeBtn = document.createElement('button');
+    removeBtn.type = 'button';
+    removeBtn.className = 'file-preview-remove';
+    removeBtn.setAttribute('aria-label', `Remove ${file.name}`);
+    removeBtn.textContent = '✕';
+    removeBtn.addEventListener('click', () => {
+      card._idFiles.splice(index, 1);
+      renderFilePreviews(card);
+    });
+
+    item.appendChild(thumb);
+    item.appendChild(label);
+    item.appendChild(removeBtn);
+    wrap.appendChild(item);
   });
 }
 
@@ -243,8 +286,7 @@ document.getElementById('rsvp-form').addEventListener('submit', async (e) => {
     const arrivalDate = card.querySelector('.arrival-date').value;
     const arrivalTime = card.querySelector('.arrival-time').value;
     const arrivalAirport = card.querySelector('.arrival-airport').value.trim();
-    const fileInput = card.querySelector('.id-files');
-    const files = Array.from(fileInput.files);
+    const files = card._idFiles || [];
 
     if (!fullName || !phone || files.length === 0) {
       setError('form-error', `Please complete all required fields for ${name}.`);

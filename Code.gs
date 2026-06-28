@@ -38,6 +38,10 @@
  *    Vidhi - Attending | Tea ceremony - Attending | Dinner - Attending
  *  ...followed by Identification 1 / 2 / 3 at the very end.
  *
+ *  Uploaded verification photos are saved into Drive under a folder called
+ *  UPLOAD_FOLDER_NAME, with one SUBFOLDER PER GUEST (named after their full
+ *  name) inside it — so everyone's photos are kept separate and easy to find.
+ *
  *  If a guest uploads MORE than 3 verification photos, photos 4+ get appended
  *  into the "Identification 3" cell (one link per line) so nothing is lost.
  *
@@ -255,15 +259,14 @@ function submitRsvp(payload) {
       sheet.getRange(rowNum, col + 1).setValue(guest.attendance[eventName]);
     });
 
-    // Identification photos -> Identification 1 / 2 / 3 (overflow appended into #3)
+    // Identification photos -> each guest's own subfolder, links into Identification 1/2/3 (overflow into #3)
+    const personFolder = getOrCreatePersonFolder(folder, guest.fullName || guest.name);
     const links = [];
     (guest.files || []).forEach(file => {
       try {
         const decoded = Utilities.base64Decode(file.base64);
         const blob = Utilities.newBlob(decoded, file.mimeType, file.name);
-        const safeName = (guest.fullName || guest.name || 'guest').replace(/[^a-z0-9]+/gi, '_');
-        blob.setName(safeName + '_' + file.name);
-        const driveFile = folder.createFile(blob);
+        const driveFile = personFolder.createFile(blob);
         driveFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
         links.push(driveFile.getUrl());
       } catch (fileErr) {
@@ -289,4 +292,12 @@ function getOrCreateUploadFolder() {
   const folders = DriveApp.getFoldersByName(UPLOAD_FOLDER_NAME);
   if (folders.hasNext()) return folders.next();
   return DriveApp.createFolder(UPLOAD_FOLDER_NAME);
+}
+
+/** Each guest gets their own subfolder (by name) inside the main upload folder. */
+function getOrCreatePersonFolder(parentFolder, personName) {
+  const safeName = String(personName || 'Guest').trim() || 'Guest';
+  const existing = parentFolder.getFoldersByName(safeName);
+  if (existing.hasNext()) return existing.next();
+  return parentFolder.createFolder(safeName);
 }
