@@ -69,7 +69,6 @@ async function findParty() {
     }
 
     currentParty = data;
-    document.getElementById('welcome-name').textContent = data.matchedName;
     document.getElementById('form-name').textContent = data.matchedName;
     renderEvents(data.guests);
     renderGuestForms(data.guests);

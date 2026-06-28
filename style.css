@@ -96,6 +96,17 @@ h1.headline {
 
 .actions { display: flex; flex-direction: column; gap: 16px; align-items: center; }
 
+.ps-note {
+  font-family: 'Inter', sans-serif;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--ink-soft);
+  text-align: center;
+  margin: 28px 0 0;
+  padding-top: 20px;
+  border-top: 1px dashed var(--line);
+}
+
 input[type="text"], input[type="datetime-local"] {
   width: 100%;
   font-family: 'Inter', sans-serif;
