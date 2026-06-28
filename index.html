@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>RSVP — Han Seng & Tanaaz</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- SCREEN 1: WELCOME -->
+  <section id="welcome-screen" class="screen active">
+    <div class="card">
+      <p class="eyebrow">You are invited</p>
+      <h1 class="headline">Welcome, <span id="welcome-name">Guest</span></h1>
+      <div class="knot"><span class="line"></span><span class="mark">❖</span><span class="line"></span></div>
+      <p class="subline">to the wedding celebrations of<br><strong>Han Seng &amp; Tanaaz</strong>.<br>Please RSVP below for your party.</p>
+      <div class="actions">
+        <input type="text" id="name-input" placeholder="Type your full name" autocomplete="off" />
+        <button id="find-party-btn">Continue</button>
+        <p class="error-text" id="welcome-error" style="display:none;"></p>
+      </div>
+    </div>
+  </section>
+
+  <!-- SCREEN 2: FORM -->
+  <section id="form-screen" class="screen form-screen">
+    <div class="card" style="max-width:720px;">
+      <p class="eyebrow">RSVP</p>
+      <h1 class="headline" style="font-size:32px;">Welcome, <span id="form-name"></span></h1>
+      <p class="subline">Please fill in the RSVP details for your party.</p>
+
+      <div class="events-block">
+        <h3>Your Events</h3>
+        <div id="events-list"></div>
+      </div>
+
+      <form id="rsvp-form">
+        <div id="guests-container" style="margin-top:28px;"></div>
+        <p class="error-text" id="form-error" style="display:none;"></p>
+        <div class="submit-bar">
+          <button type="submit" id="submit-btn">Confirm RSVP</button>
+        </div>
+      </form>
+    </div>
+  </section>
+
+  <!-- SCREEN 3: THANK YOU -->
+  <section id="thankyou-screen" class="screen">
+    <div class="card">
+      <p class="eyebrow">RSVP Received</p>
+      <h1 class="headline">Thank You</h1>
+      <div class="knot"><span class="line"></span><span class="mark">❖</span><span class="line"></span></div>
+      <p class="subline">
+        We've recorded your RSVP for Han Seng &amp; Tanaaz's wedding.<br><br>
+        If your travel plans change after submitting, please reach out
+        directly to Tanaaz or Han Seng.
+      </p>
+    </div>
+  </section>
+
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
