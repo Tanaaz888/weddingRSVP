@@ -71,7 +71,7 @@ async function findParty() {
     currentParty = data;
     document.getElementById('form-name').textContent = data.matchedName;
     renderEvents(data.guests);
-    renderGuestForms(data.guests);
+    renderGuestForms(data.guests, data.pickupRequired);
     show('form-screen');
   } catch (err) {
     setError('welcome-error', 'Something went wrong reaching the guest list. Please try again.');
@@ -125,7 +125,7 @@ function renderEvents(guests) {
   });
 }
 
-function renderGuestForms(guests) {
+function renderGuestForms(guests, pickupRequired) {
   const container = document.getElementById('guests-container');
   container.innerHTML = '';
 
@@ -134,6 +134,7 @@ function renderGuestForms(guests) {
     const card = document.createElement('div');
     card.className = 'guest-card';
     card.dataset.guestName = guest.name;
+    card.dataset.pickupRequired = pickupRequired ? 'true' : 'false';
 
     let attendanceHtml = '';
     if (guest.invitedEvents.length) {
@@ -158,20 +159,11 @@ function renderGuestForms(guests) {
 
     const isOverseasSaved = String(saved.travellingOverseas || '').toLowerCase() === 'yes';
 
-    card.innerHTML = `
-      <div class="guest-name-tag">Guest ${idx + 1}</div>
-      <h2>${escapeHtml(guest.name)}</h2>
-
-      <label>Full name<span class="req">*</span></label>
-      <p class="helper-text">Full name as per passport</p>
-      <input type="text" class="full-name" required placeholder="Exact name as on your travel document" value="${escapeHtml(saved.fullName || '')}" />
-
-      <label>Phone number<span class="req">*</span></label>
-      <input type="text" class="phone" required placeholder="+65 9123 4567" value="${escapeHtml(saved.phone || '')}" />
-
-      <h3 style="margin-top:24px;">Confirm Attendance</h3>
-      ${attendanceHtml}
-
+    // The whole "Travel Details" block (the overseas tickbox + arrival
+    // fields) only exists in the DOM at all if this party's "Pickup" flag
+    // is set. When it's not set, none of these inputs are rendered, so
+    // there's nothing to validate and nothing to submit for them.
+    const travelDetailsHtml = pickupRequired ? `
       <h3 style="margin-top:24px;">Travel Details</h3>
       <label class="checkbox-label">
         <input type="checkbox" class="overseas-checkbox" ${isOverseasSaved ? 'checked' : ''} />
@@ -191,7 +183,23 @@ function renderGuestForms(guests) {
         <label>Arrival airport<span class="req">*</span></label>
         <input type="text" class="arrival-airport" placeholder="e.g. Singapore Changi (SIN)" value="${escapeHtml(saved.arrivalAirport || '')}" ${isOverseasSaved ? '' : 'disabled'} />
       </div>
+    ` : '';
 
+    card.innerHTML = `
+      <div class="guest-name-tag">Guest ${idx + 1}</div>
+      <h2>${escapeHtml(guest.name)}</h2>
+
+      <label>Full name<span class="req">*</span></label>
+      <p class="helper-text">Full name as per passport</p>
+      <input type="text" class="full-name" required placeholder="Exact name as on your travel document" value="${escapeHtml(saved.fullName || '')}" />
+
+      <label>Phone number<span class="req">*</span></label>
+      <input type="text" class="phone" required placeholder="+65 9123 4567" value="${escapeHtml(saved.phone || '')}" />
+
+      <h3 style="margin-top:24px;">Confirm Attendance</h3>
+      ${attendanceHtml}
+
+      ${travelDetailsHtml}
       <label>Photo(s) for verification (Passport / Visa / OCI / Aadhar card)<span class="req">*</span> <span style="font-weight:400;">(upload as many as needed)</span></label>
       <div class="file-input-wrap">
         <input type="file" class="id-files-input" accept="image/*,application/pdf" multiple style="display:none" />
@@ -320,13 +328,18 @@ document.getElementById('rsvp-form').addEventListener('submit', async (e) => {
 
   for (const card of guestCards) {
     const name = card.dataset.guestName;
+    const pickupRequired = card.dataset.pickupRequired === 'true';
     const fullName = card.querySelector('.full-name').value.trim();
     const phone = card.querySelector('.phone').value.trim();
-    const overseasChecked = card.querySelector('.overseas-checkbox').checked;
-    const arrivalFlightNumber = card.querySelector('.arrival-flight-number').value.trim();
-    const arrivalDate = card.querySelector('.arrival-date').value;
-    const arrivalTime = card.querySelector('.arrival-time').value;
-    const arrivalAirport = card.querySelector('.arrival-airport').value.trim();
+
+    // These fields only exist in the DOM at all when this party's "Pickup"
+    // flag is set — otherwise there's nothing to read or validate, and the
+    // payload sends "No"/blank for all of them.
+    const overseasChecked = pickupRequired ? card.querySelector('.overseas-checkbox').checked : false;
+    const arrivalFlightNumber = pickupRequired ? card.querySelector('.arrival-flight-number').value.trim() : '';
+    const arrivalDate = pickupRequired ? card.querySelector('.arrival-date').value : '';
+    const arrivalTime = pickupRequired ? card.querySelector('.arrival-time').value : '';
+    const arrivalAirport = pickupRequired ? card.querySelector('.arrival-airport').value.trim() : '';
     const newFiles = card._idFiles || [];
     const keptExisting = card._existingFiles || [];
 
@@ -335,7 +348,7 @@ document.getElementById('rsvp-form').addEventListener('submit', async (e) => {
       return;
     }
 
-    if (overseasChecked && (!arrivalFlightNumber || !arrivalDate || !arrivalTime || !arrivalAirport)) {
+    if (pickupRequired && overseasChecked && (!arrivalFlightNumber || !arrivalDate || !arrivalTime || !arrivalAirport)) {
       setError('form-error', `Please complete the overseas travel details for ${name}.`);
       return;
     }

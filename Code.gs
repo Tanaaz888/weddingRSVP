@@ -4,7 +4,7 @@
  * YOUR SHEET (tab name set in SHEET_NAME below) — ONE ROW PER PERSON:
  *
  *  Readable (you pre-fill these before sharing the site):
- *    Name | Party name | POC | Mehndi | Haldi | Sangeet | Vidhi | Tea ceremony | Dinner
+ *    Name | Party name | POC | Pickup | Mehndi | Haldi | Sangeet | Vidhi | Tea ceremony | Dinner
  *
  *    - "Name": that row's person, exactly as they'll type it on the site.
  *    - "Party name": a SHARED label/ID for the group — put the exact same
@@ -16,6 +16,15 @@
  *      person whose own Name matches the POC value can open the RSVP form
  *      and fill it in for the whole party. Everyone else in the party who
  *      tries gets redirected to a "please ask your party leader" page.
+ *    - "Pickup": INTERNAL ONLY — never shown on the website. Tick = TRUE
+ *      (checkbox) or "Yes" if you need to collect overseas travel/arrival
+ *      info for this party. It's a party-level flag, just like the event
+ *      columns — tick it on at least one row in the party (simplest to tick
+ *      it the same way on every row). If it's NOT ticked for the party, the
+ *      "Travelling from overseas" question and all arrival detail fields
+ *      are hidden entirely on the form for every guest in that party, and
+ *      the backend always leaves those columns blank on submit regardless
+ *      of anything the browser sends.
  *    - Mehndi/Haldi/etc: tick = TRUE (checkbox) or "Yes" if the PARTY is
  *      invited to that event. Every person in the same party gets the same
  *      events to confirm — tick it on at least one row in the party and
@@ -27,9 +36,10 @@
  *    Arrival Flight Number | Arrival Travel Date | Arrival Travel Time | Arrival Airport |
  *    Identification 1 | Identification 2 | Identification 3
  *
- *    - "Travelling from Overseas" is a Yes/No tickbox on the form. The arrival
+ *    - "Travelling from Overseas" is a Yes/No tickbox on the form, only
+ *      shown at all if the party's "Pickup" column is ticked. The arrival
  *      flight fields are only filled in (and only required) if that's Yes —
- *      otherwise they're left blank.
+ *      otherwise (or if "Pickup" isn't ticked) they're left blank.
  *
  *  On the FIRST submission to the sheet, the script auto-adds these columns
  *  right after "Arrival Airport", in this fixed order, all at once — so the
@@ -146,6 +156,18 @@ function findRowsByPartyName(sheet, headers, partyName) {
   return rows;
 }
 
+/** True if a party-level tickbox column (TRUE / "Yes" / "True") is set on
+ *  at least one row belonging to the party — same union logic used for the
+ *  event invite columns, reused here for any other party-level flag. */
+function partyFlagIsSet(partyRows, headers, colName) {
+  const c = colIndex(headers, colName);
+  if (c === -1) return false;
+  return partyRows.some(r => {
+    const val = r.rowData[c];
+    return val === true || String(val).trim().toLowerCase() === 'yes' || String(val).trim().toLowerCase() === 'true';
+  });
+}
+
 /** Look up the typed name, find everyone sharing the same Party name, and
  *  check whether the typed name is that party's designated leader (POC). */
 function getPartyByName(typedName) {
@@ -190,14 +212,13 @@ function getPartyByName(typedName) {
   }
 
   // Event invites are at the PARTY level — union the tickboxes across every row in the party.
-  const invitedEvents = EVENT_COLUMNS.filter(eventName => {
-    const c = colIndex(headers, eventName);
-    if (c === -1) return false;
-    return partyRows.some(r => {
-      const val = r.rowData[c];
-      return val === true || String(val).trim().toLowerCase() === 'yes' || String(val).trim().toLowerCase() === 'true';
-    });
-  }).map(eventName => ({ name: eventName, dateTime: EVENT_INFO[eventName] || '' }));
+  const invitedEvents = EVENT_COLUMNS.filter(eventName => partyFlagIsSet(partyRows, headers, eventName))
+    .map(eventName => ({ name: eventName, dateTime: EVENT_INFO[eventName] || '' }));
+
+  // "Pickup" is also a party-level, internal-only flag: it never reaches the
+  // website as a column, but it gates whether the overseas travel/arrival
+  // block is shown on the form at all.
+  const pickupRequired = partyFlagIsSet(partyRows, headers, 'Pickup');
 
   const guests = partyRows.map(r => ({
     name: String(r.rowData[nameCol]).trim(),
@@ -209,7 +230,7 @@ function getPartyByName(typedName) {
     return { status: 'error', error: 'We found your name, but could not resolve your party. Please contact Han Seng or Tanaaz.' };
   }
 
-  return { status: 'ok', matchedName: ownName, guests: guests };
+  return { status: 'ok', matchedName: ownName, guests: guests, pickupRequired: pickupRequired };
 }
 
 /** Whatever's already in this guest's row, shaped for the form to pre-fill with. */
@@ -301,8 +322,12 @@ function submitRsvp(payload) {
     writeCell(sheet, headers, rowNum, 'Full Name', guest.fullName || '');
     writeCell(sheet, headers, rowNum, 'Phone Number', guest.phone || '');
 
-    const isOverseas = String(guest.travellingOverseas || '').trim().toLowerCase() === 'yes';
-    writeCell(sheet, headers, rowNum, 'Travelling from Overseas', isOverseas ? 'Yes' : 'No');
+    // "Pickup" gates the whole overseas/arrival block. This is re-checked
+    // here from the sheet itself (not trusted from the payload) so the
+    // columns stay blank even if something odd came in from the browser.
+    const pickupRequired = isPickupRequiredForRow(sheet, headers, match.rowData);
+    const isOverseas = pickupRequired && String(guest.travellingOverseas || '').trim().toLowerCase() === 'yes';
+    writeCell(sheet, headers, rowNum, 'Travelling from Overseas', pickupRequired ? (isOverseas ? 'Yes' : 'No') : '');
     writeCell(sheet, headers, rowNum, 'Arrival Flight Number', isOverseas ? (guest.arrivalFlightNumber || '') : '');
     writeCell(sheet, headers, rowNum, 'Arrival Travel Date', isOverseas ? (guest.arrivalDate || '') : '');
     writeCell(sheet, headers, rowNum, 'Arrival Travel Time', isOverseas ? (guest.arrivalTime || '') : '');
@@ -391,6 +416,18 @@ function getExistingIdentificationLinks(rowData, headers) {
     raw.split('\n').map(s => s.trim()).filter(Boolean).forEach(link => links.push(link));
   });
   return links;
+}
+
+/** Re-derives whether "Pickup" is set for the party that this specific row
+ *  belongs to — used at submit time so the answer always comes fresh from
+ *  the sheet itself, never from whatever the browser happened to send. */
+function isPickupRequiredForRow(sheet, headers, rowData) {
+  const partyCol = colIndex(headers, 'Party name');
+  if (partyCol === -1) return false;
+  const partyName = String(rowData[partyCol] || '').trim();
+  if (!partyName) return false;
+  const partyRows = findRowsByPartyName(sheet, headers, partyName);
+  return partyFlagIsSet(partyRows, headers, 'Pickup');
 }
 
 function getOrCreateUploadFolder() {
