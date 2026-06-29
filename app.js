@@ -70,6 +70,7 @@ async function findParty() {
 
     currentParty = data;
     document.getElementById('form-name').textContent = data.matchedName;
+    renderPartyMembers(data.guests, data.matchedName);
     renderEvents(data.guests);
     renderGuestForms(data.guests, data.pickupRequired);
     show('form-screen');
@@ -91,6 +92,7 @@ document.getElementById('form-back-btn').addEventListener('click', () => {
   currentParty = null;
   document.getElementById('rsvp-form').reset();
   document.getElementById('guests-container').innerHTML = '';
+  document.getElementById('party-members-block').style.display = 'none';
   setError('form-error', '');
   show('welcome-screen');
 });
@@ -101,6 +103,7 @@ document.getElementById('return-home-btn').addEventListener('click', () => {
   document.getElementById('name-input').value = '';
   document.getElementById('rsvp-form').reset();
   document.getElementById('guests-container').innerHTML = '';
+  document.getElementById('party-members-block').style.display = 'none';
   setError('welcome-error', '');
   setError('form-error', '');
   show('welcome-screen');
@@ -119,6 +122,36 @@ function revokeCardObjectUrls() {
 }
 
 // ---------- Screen 2: Form rendering ----------
+
+// Shows a compact party roster above the events block — only for parties of 2+.
+function renderPartyMembers(guests, leaderName) {
+  const block = document.getElementById('party-members-block');
+  block.innerHTML = '';
+
+  if (guests.length <= 1) {
+    block.style.display = 'none';
+    return;
+  }
+
+  block.style.display = 'block';
+  block.innerHTML = `
+    <div class="party-members-block">
+      <h3>Your Party</h3>
+      <div class="party-members-list">
+        ${guests.map((g, i) => {
+          const isLeader = g.name.toLowerCase() === (leaderName || '').toLowerCase();
+          return `
+            <div class="party-member-row">
+              <span class="party-member-index">${i + 1}</span>
+              <span class="party-member-name">${escapeHtml(g.name)}</span>
+              ${isLeader ? '<span class="party-leader-badge">Party Leader</span>' : ''}
+            </div>
+          `;
+        }).join('')}
+      </div>
+    </div>
+  `;
+}
 
 // Union of every event any guest in the party is invited to, for the summary block.
 function renderEvents(guests) {

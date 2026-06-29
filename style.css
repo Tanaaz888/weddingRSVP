@@ -405,6 +405,71 @@ select {
 }
 .file-preview-remove:hover { background: var(--rose); color: #fff; }
 
+.party-members-block {
+  margin-bottom: 24px;
+  padding: 20px 24px;
+  border: 1px solid var(--line);
+  background: rgba(28, 57, 52, 0.03);
+}
+
+.party-members-block h3 {
+  font-family: 'Inter', sans-serif;
+  font-size: 12px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  margin: 0 0 14px;
+}
+
+.party-members-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.party-member-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 0;
+  border-bottom: 1px dashed var(--line);
+  font-family: 'Inter', sans-serif;
+}
+
+.party-member-row:last-child {
+  border-bottom: none;
+}
+
+.party-member-index {
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--ink);
+  color: var(--cream);
+  font-size: 11px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.party-member-name {
+  font-size: 14px;
+  color: var(--charcoal);
+}
+
+.party-leader-badge {
+  font-family: 'Inter', sans-serif;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--gold);
+  border: 1px solid var(--gold-light);
+  padding: 2px 7px;
+  white-space: nowrap;
+}
+
 .doc-slots {
   display: flex;
   flex-direction: column;
