@@ -371,30 +371,35 @@ async function initCardWidgets(card, saved) {
       initialCountry: 'sg',
       separateDialCode: true,
       autoPlaceholder: 'aggressive',
-      formatAsYouType: false,          // disabled — the library permanently kills its own
-                                       // formatter when it writes a space (sets
-                                       // userOverrideFormatting=true). We format manually.
+      formatAsYouType: false,          // disabled — the library sets userOverrideFormatting=true
+                                       // whenever it writes a space, permanently killing the
+                                       // formatter. We replicate _formatNumberAsYouType manually.
       placeholderNumberType: 'MOBILE',
     });
     card._iti = iti;
 
-    // Compute max national digit count using the same algorithm as the library's
-    // _updateMaxLength (unavailable without strictMode, which breaks formatting).
+    /**
+     * Compute the max national digit count for the selected country.
+     * Use getExampleNumber directly — the isPossibleNumber loop used previously
+     * over-counted for countries like India (+91 prefix included in the string).
+     */
     function computeMaxDigits() {
       const utils = window.intlTelInput && window.intlTelInput.utils;
       if (!utils) return null;
       const iso2 = iti.getSelectedCountryData().iso2;
       if (!iso2) return null;
       try {
-        let example = utils.getExampleNumber(iso2, false, utils.numberType.MOBILE, true);
-        let lastValid = example;
-        while (utils.isPossibleNumber(example, iso2)) { lastValid = example; example += '0'; }
-        return utils.getCoreNumber(lastValid, iso2).length;
+        const example = utils.getExampleNumber(iso2, true, utils.numberType.MOBILE, true);
+        return utils.getCoreNumber(example, iso2).length;
       } catch (e) { return null; }
     }
 
-    // Replicate the library's _formatNumberAsYouType: prepend dial code so
-    // libphonenumber can parse in context, format, then strip dial code back off.
+    /**
+     * Replicates _formatNumberAsYouType():
+     * Prepend +dialCode so libphonenumber can parse the number in context,
+     * run formatNumberAsYouType, then strip the dial code back off since
+     * separateDialCode shows it separately.
+     */
     function formatCurrentValue() {
       const utils = window.intlTelInput && window.intlTelInput.utils;
       if (!utils) return;
@@ -403,11 +408,12 @@ async function initCardWidgets(card, saved) {
       if (!val) return;
       const fullNumber = (val.charAt(0) !== '+' && dialCode) ? `+${dialCode}${val}` : val;
       let formatted = utils.formatNumberAsYouType(fullNumber, iso2);
-      if (dialCode && formatted.startsWith(`+${dialCode}`)) {
-        formatted = formatted.slice(`+${dialCode}`.length).trim();
+      const prefix = `+${dialCode}`;
+      if (dialCode && formatted.startsWith(prefix)) {
+        formatted = formatted.slice(prefix.length).trimStart();
       }
       if (formatted === phoneInput.value) return;
-      // Restore caret to same logical digit position after formatting
+      // Restore caret to same digit position in the newly formatted string
       const caretPos = phoneInput.selectionStart || 0;
       const digitsBefore = phoneInput.value.slice(0, caretPos).replace(/\D/g, '').length;
       phoneInput.value = formatted;
@@ -426,7 +432,8 @@ async function initCardWidgets(card, saved) {
       card._phoneMaxDigits = computeMaxDigits();
     });
 
-    // Block non-digits and enforce max length before the character is inserted
+    // Block non-digits and enforce max length BEFORE the character is inserted,
+    // so formatCurrentValue on 'input' only ever sees clean numeric input.
     phoneInput.addEventListener('keydown', (e) => {
       if (e.key === 'Backspace' || e.key === 'Delete' || e.key === 'Tab' ||
           e.key === 'Escape' || e.key.startsWith('Arrow') ||
@@ -438,7 +445,7 @@ async function initCardWidgets(card, saved) {
       }
     });
 
-    // Format after each keystroke; clear error highlight
+    // Apply national formatting after each keystroke; clear error highlights
     phoneInput.addEventListener('input', () => {
       formatCurrentValue();
       card.querySelector('.phone-wrap')?.classList.remove('field-error');
@@ -654,15 +661,68 @@ document.getElementById('rsvp-form').addEventListener('submit', async (e) => {
     let phone = '';
     const iti = card._iti;
     if (iti) {
-      if (!iti.isValidNumber()) {
+      const e164 = iti.getNumber();           // e.g. "+6591234567"
+      const countryData = iti.getSelectedCountryData();
+      const iso2 = countryData.iso2;
+
+      /**
+       * Robust phone validation tested against SG, IN, AE, US, AU and edge cases:
+       * 1. isValidNumber — libphonenumber structural check (length, area code, etc.)
+       * 2. Reject non-dialable types: VOIP, PAGER, TOLL_FREE, PREMIUM_RATE,
+       *    SHARED_COST, UAN, UNKNOWN (covers SG 3x VOIP numbers passing isValidNumber)
+       * 3. For countries where FIXED_LINE overlaps mobile ranges, apply a prefix
+       *    rule as a fallback (e.g. India 6-9 prefix for mobile; 1-5 are landlines)
+       */
+      const utils = window.intlTelInput && window.intlTelInput.utils;
+      let phoneOk = false;
+      let phoneErrorMsg = `Please enter a valid mobile number for ${name}.`;
+
+      if (!e164 || !utils) {
+        phoneOk = false;
+      } else {
+        const isValid = utils.isValidNumber(e164, iso2);
+        if (!isValid) {
+          phoneOk = false;
+        } else {
+          const type = utils.getNumberType(e164, iso2);
+          const NT = utils.numberType;
+          // Types that are never personal mobile numbers
+          const REJECT_TYPES = new Set([NT.VOIP, NT.PAGER, NT.TOLL_FREE,
+                                        NT.PREMIUM_RATE, NT.SHARED_COST,
+                                        NT.UAN, NT.UNKNOWN]);
+          if (REJECT_TYPES.has(type)) {
+            phoneOk = false;
+            if (type === NT.VOIP) phoneErrorMsg = `Please enter a mobile number, not a VOIP number, for ${name}.`;
+          } else if (type === NT.FIXED_LINE) {
+            // Some countries classify mobile numbers as FIXED_LINE — apply
+            // country-specific prefix rules to distinguish mobile from landline
+            const MOBILE_PREFIXES = { 'in': /^[6-9]/ };
+            const core = utils.getCoreNumber(e164, iso2);
+            const rule = MOBILE_PREFIXES[iso2];
+            if (rule && !rule.test(core)) {
+              phoneOk = false;
+              phoneErrorMsg = `Please enter a mobile number for ${name}. Landline numbers are not accepted.`;
+            } else {
+              phoneOk = true; // FIXED_LINE in a country without a strict mobile rule, or matches rule
+            }
+          } else {
+            phoneOk = true; // MOBILE, FIXED_LINE_OR_MOBILE, PERSONAL_NUMBER, VOICEMAIL
+          }
+        }
+      }
+
+      if (!phoneOk) {
         const phoneWrap = card.querySelector('.phone-wrap');
         const phoneError = card.querySelector('.phone-error');
-        if (phoneError) { phoneError.textContent = `Please enter a valid phone number for ${name}.`; phoneError.style.display = 'block'; }
-        setError('form-error', `Please enter a valid phone number for ${name}.`);
+        if (phoneError) { phoneError.textContent = phoneErrorMsg; phoneError.style.display = 'block'; }
+        setError('form-error', phoneErrorMsg);
         flagField(phoneWrap);
         return;
       }
-      phone = iti.getNumber(); // E.164 format e.g. +6591234567
+      // Store in INTERNATIONAL format (e.g. "+65 9123 4567") for readability in the sheet
+      phone = utils
+        ? utils.formatNumber(e164, iso2, utils.numberFormat.INTERNATIONAL)
+        : e164;
     } else {
       phone = card.querySelector('.phone-input').value.trim();
     }
