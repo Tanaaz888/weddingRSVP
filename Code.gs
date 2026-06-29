@@ -32,10 +32,13 @@
  *      it the same way on every row in the party).
  *
  *  Writable (the form fills these in — leave blank, just have the header):
- *    Full Name | Phone Number | Travelling from Overseas |
+ *    Full Name | Phone Number | Local Indian | Travelling from Overseas |
  *    Arrival Flight Number | Arrival Travel Date | Arrival Travel Time | Arrival Airport |
- *    Identification 1 | Identification 2 | Identification 3
+ *    Passport | Visa / OCI | Aadhar Card
  *
+ *    - "Local Indian": Yes/No, set by a tickbox on the form. Gates which
+ *      document slots are shown — Locals see Aadhar Card only; foreigners
+ *      see Passport + Visa / OCI.
  *    - "Travelling from Overseas" is a Yes/No tickbox on the form, only
  *      shown at all if the party's "Pickup" column is ticked. The arrival
  *      flight fields are only filled in (and only required) if that's Yes —
@@ -46,7 +49,7 @@
  *  layout never depends on which event someone happens to RSVP for first:
  *    Mehndi - Attending | Haldi - Attending | Sangeet - Attending |
  *    Vidhi - Attending | Tea ceremony - Attending | Dinner - Attending
- *  ...followed by Identification 1 / 2 / 3 at the very end.
+ *  ...followed by Local Indian | Passport | Visa / OCI | Aadhar Card at the end.
  *
  *  Uploaded verification photos are saved into Drive under a folder called
  *  UPLOAD_FOLDER_NAME, with one SUBFOLDER PER GUEST — named after their
@@ -260,21 +263,28 @@ function buildSavedData(rowData, headers, invitedEvents) {
     attendance[ev.name] = get(`${ev.name} - Attending`);
   });
 
-  const existingFiles = getExistingIdentificationLinks(rowData, headers).map(url => ({
-    url: url,
-    fileName: getFileNameFromUrl(url)
-  }));
+  // Return each document slot independently so the form can show existing
+  // filename + ✕ (or an upload button if empty) for each one separately.
+  const makeSlot = colName => {
+    const links = getLinksFromCell(rawGet(colName));
+    if (!links.length) return null;
+    const url = links[0];
+    return { url: url, fileName: getFileNameFromUrl(url) };
+  };
 
   return {
     fullName: get('Full Name'),
     phone: get('Phone Number'),
+    localIndian: get('Local Indian'),
     travellingOverseas: get('Travelling from Overseas'),
     arrivalFlightNumber: get('Arrival Flight Number'),
     arrivalDate: getDate('Arrival Travel Date'),
     arrivalTime: getTime('Arrival Travel Time'),
     arrivalAirport: get('Arrival Airport'),
     attendance: attendance,
-    existingFiles: existingFiles
+    passport:   makeSlot('Passport'),
+    visaOci:    makeSlot('Visa / OCI'),
+    aadharCard: makeSlot('Aadhar Card')
   };
 }
 
@@ -306,11 +316,11 @@ function submitRsvp(payload) {
   // Fix the column structure up front, in order, so it never depends on
   // which events happen to be submitted first: all "<Event> - Attending"
   // columns (in EVENT_COLUMNS order) come right after the arrival info,
-  // then Identification 1/2/3 at the very end.
+  // then the three document columns and Local Indian at the very end.
   EVENT_COLUMNS.forEach(eventName => {
     ensureColumn(sheet, headers, `${eventName} - Attending`);
   });
-  ['Identification 1', 'Identification 2', 'Identification 3'].forEach(colName => {
+  ['Local Indian', 'Passport', 'Visa / OCI', 'Aadhar Card'].forEach(colName => {
     ensureColumn(sheet, headers, colName);
   });
 
@@ -321,6 +331,7 @@ function submitRsvp(payload) {
 
     writeCell(sheet, headers, rowNum, 'Full Name', guest.fullName || '');
     writeCell(sheet, headers, rowNum, 'Phone Number', guest.phone || '');
+    writeCell(sheet, headers, rowNum, 'Local Indian', guest.localIndian || '');
 
     // "Pickup" gates the whole overseas/arrival block. This is re-checked
     // here from the sheet itself (not trusted from the payload) so the
@@ -339,44 +350,42 @@ function submitRsvp(payload) {
       sheet.getRange(rowNum, col + 1).setValue(guest.attendance[eventName]);
     });
 
-    // Identification photos:
-    //  - "kept" = previously uploaded links the user did NOT remove (existingFiles from payload)
-    //  - anything previously stored but NOT in "kept" was removed by the user -> trash it in Drive
-    //  - newly uploaded files get saved into a subfolder named after the guest's "Name" (stable
-    //    even if Full Name changes later, so we never create orphan folders)
-    const previousLinks = getExistingIdentificationLinks(match.rowData, headers);
-    const keptLinks = Array.isArray(guest.existingFiles) ? guest.existingFiles.filter(Boolean) : [];
-    const keptSet = new Set(keptLinks);
-
-    previousLinks.forEach(link => {
-      if (keptSet.has(link)) return;
-      const id = extractDriveFileId(link);
-      if (!id) return;
-      try {
-        DriveApp.getFileById(id).setTrashed(true);
-      } catch (trashErr) {
-        // file already gone / inaccessible — nothing more to do
-      }
-    });
-
+    // Document slots: Passport, Visa / OCI, Aadhar Card
+    // Each slot accepts exactly one file. If the user kept the existing file
+    // (existingUrl present, no newFile), write it back unchanged.
+    // If they removed it (no existingUrl) and uploaded a new one, save that.
+    // If they removed it and didn't upload anything, clear the cell.
+    // Files removed by the user are trashed in Drive.
     const personFolder = getOrCreatePersonFolder(folder, guest.name);
-    const newLinks = [];
-    (guest.files || []).forEach(file => {
-      try {
-        const decoded = Utilities.base64Decode(file.base64);
-        const blob = Utilities.newBlob(decoded, file.mimeType, file.name);
-        const driveFile = personFolder.createFile(blob);
-        driveFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-        newLinks.push(driveFile.getUrl());
-      } catch (fileErr) {
-        newLinks.push('UPLOAD FAILED: ' + file.name);
-      }
-    });
+    const DOC_SLOTS = ['Passport', 'Visa / OCI', 'Aadhar Card'];
 
-    const finalLinks = keptLinks.concat(newLinks);
-    writeCell(sheet, headers, rowNum, 'Identification 1', finalLinks[0] || '');
-    writeCell(sheet, headers, rowNum, 'Identification 2', finalLinks[1] || '');
-    writeCell(sheet, headers, rowNum, 'Identification 3', finalLinks.length > 2 ? finalLinks.slice(2).join('\n') : '');
+    DOC_SLOTS.forEach(slotName => {
+      const slot = (guest.docSlots || {})[slotName] || {};
+      const keptUrl = slot.existingUrl || null;
+      const newFileData = slot.newFile || null;
+
+      // Trash any previously stored file for this slot that was removed
+      const prevUrl = getPreviousSlotUrl(match.rowData, headers, slotName);
+      if (prevUrl && prevUrl !== keptUrl) {
+        const id = extractDriveFileId(prevUrl);
+        if (id) { try { DriveApp.getFileById(id).setTrashed(true); } catch (e) {} }
+      }
+
+      let finalUrl = keptUrl || '';
+      if (newFileData && newFileData.base64) {
+        try {
+          const decoded = Utilities.base64Decode(newFileData.base64);
+          const blob = Utilities.newBlob(decoded, newFileData.mimeType, newFileData.name);
+          const driveFile = personFolder.createFile(blob);
+          driveFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+          finalUrl = driveFile.getUrl();
+        } catch (fileErr) {
+          finalUrl = 'UPLOAD FAILED: ' + (newFileData.name || slotName);
+        }
+      }
+
+      writeCell(sheet, headers, rowNum, slotName, finalUrl);
+    });
   });
 
   return { success: true };
@@ -404,18 +413,17 @@ function getFileNameFromUrl(url) {
   }
 }
 
-/** Reads whatever's currently in Identification 1/2/3 for a row, as a flat
- *  array of Drive URLs (Identification 3 may hold several, newline-separated). */
-function getExistingIdentificationLinks(rowData, headers) {
-  const links = [];
-  ['Identification 1', 'Identification 2', 'Identification 3'].forEach(colName => {
-    const c = colIndex(headers, colName);
-    if (c === -1) return;
-    const raw = String(rowData[c] || '').trim();
-    if (!raw) return;
-    raw.split('\n').map(s => s.trim()).filter(Boolean).forEach(link => links.push(link));
-  });
-  return links;
+/** Returns the Drive URL currently stored for a specific doc slot column, or '' if empty. */
+function getPreviousSlotUrl(rowData, headers, colName) {
+  const c = colIndex(headers, colName);
+  if (c === -1) return '';
+  return String(rowData[c] || '').trim();
+}
+
+/** Splits a cell value into an array of non-empty strings (handles newline-separated values). */
+function getLinksFromCell(cellValue) {
+  if (!cellValue) return [];
+  return String(cellValue).split('\n').map(s => s.trim()).filter(Boolean);
 }
 
 /** Re-derives whether "Pickup" is set for the party that this specific row

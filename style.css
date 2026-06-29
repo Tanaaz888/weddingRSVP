@@ -405,6 +405,26 @@ select {
 }
 .file-preview-remove:hover { background: var(--rose); color: #fff; }
 
+.doc-slots {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.doc-slot {
+  border: 1px solid var(--line);
+  padding: 14px 16px;
+  background: #fffefb;
+}
+
+.doc-slot-label {
+  font-family: 'Inter', sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  margin-bottom: 10px;
+}
+
 .submit-bar {
   display: flex;
   justify-content: center;
