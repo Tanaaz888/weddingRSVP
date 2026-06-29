@@ -405,6 +405,141 @@ select {
 }
 .file-preview-remove:hover { background: var(--rose); color: #fff; }
 
+/* ---- Validation error highlight ---- */
+@keyframes fieldErrorPulse {
+  0%   { box-shadow: 0 0 0 0 rgba(185, 105, 90, 0.5); }
+  60%  { box-shadow: 0 0 0 6px rgba(185, 105, 90, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(185, 105, 90, 0); }
+}
+
+.field-error,
+.field-error input,
+.field-error select {
+  border-color: var(--rose) !important;
+  box-shadow: 0 0 0 3px rgba(185, 105, 90, 0.25);
+  animation: fieldErrorPulse 0.6s ease-out;
+}
+
+/* ---- intl-tel-input overrides ---- */
+.phone-wrap { position: relative; }
+.phone-wrap .iti { width: 100%; }
+.phone-wrap .iti__flag-container { z-index: 10; }
+
+/* Dial code text: match Inter font and card colour */
+.phone-wrap .iti__selected-dial-code {
+  font-family: 'Inter', sans-serif;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--charcoal);
+  letter-spacing: 0;
+}
+
+/* Arrow icon next to flag */
+.phone-wrap .iti__arrow {
+  border-top-color: var(--ink-soft);
+  margin-left: 4px;
+}
+
+/* Country dropdown list */
+.phone-wrap .iti__dropdown-content {
+  font-family: 'Inter', sans-serif;
+  font-size: 14px;
+  border: 1px solid var(--line);
+  box-shadow: 0 8px 24px -8px rgba(28,57,52,0.18);
+  border-radius: 0;
+}
+.phone-wrap .iti__country-name,
+.phone-wrap .iti__dial-code {
+  font-family: 'Inter', sans-serif;
+}
+.phone-wrap .iti__search-input {
+  font-family: 'Inter', sans-serif;
+  font-size: 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.phone-wrap input[type="tel"] {
+  width: 100%;
+  font-family: 'Inter', sans-serif;
+  font-size: 16px;
+  padding: 13px 16px;
+  border: 1px solid var(--line);
+  border-radius: 1px;
+  background: #fff;
+  color: var(--charcoal);
+  outline: none;
+  transition: border-color 0.2s;
+}
+.phone-wrap input[type="tel"]:focus { border-color: var(--gold); }
+
+/* ---- Airport searchable dropdown ---- */
+.airport-dropdown-wrap { position: relative; }
+
+.airport-search {
+  width: 100%;
+  font-family: 'Inter', sans-serif;
+  font-size: 16px;
+  padding: 13px 16px;
+  border: 1px solid var(--line);
+  border-radius: 1px;
+  background: #fff;
+  color: var(--charcoal);
+  outline: none;
+  transition: border-color 0.2s;
+}
+.airport-search:focus { border-color: var(--gold); }
+.airport-search:disabled {
+  background: rgba(0,0,0,0.03);
+  color: var(--ink-soft);
+  cursor: not-allowed;
+}
+
+.airport-dropdown-list {
+  position: absolute;
+  top: 100%;
+  left: 0; right: 0;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-top: none;
+  max-height: 220px;
+  overflow-y: auto;
+  z-index: 100;
+  box-shadow: 0 8px 24px -8px rgba(28,57,52,0.18);
+}
+
+.airport-option {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 10px 14px;
+  cursor: pointer;
+  font-family: 'Inter', sans-serif;
+  font-size: 13px;
+  border-bottom: 1px solid var(--line);
+  transition: background 0.1s;
+}
+.airport-option:last-child { border-bottom: none; }
+.airport-option:hover { background: rgba(28,57,52,0.05); }
+.airport-option-empty {
+  color: var(--ink-soft);
+  cursor: default;
+  font-style: italic;
+}
+.airport-iata {
+  font-weight: 700;
+  color: var(--ink);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  flex-shrink: 0;
+  min-width: 32px;
+}
+.airport-label {
+  color: var(--ink-soft);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .party-members-block {
   margin-bottom: 24px;
   padding: 20px 24px;

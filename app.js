@@ -1,5 +1,6 @@
 // ---------- State ----------
 let currentParty = null; // { matchedName, guests: [{ name, invitedEvents: [{name, dateTime}] }] }
+let airportsCache = null; // loaded once on first form render
 
 // ---------- Helpers ----------
 function show(screenId) {
@@ -12,6 +13,34 @@ function setError(elId, msg) {
   if (!msg) { el.style.display = 'none'; el.textContent = ''; return; }
   el.textContent = msg;
   el.style.display = 'block';
+}
+
+/**
+ * Scroll an element into view and apply a glowing red error border.
+ * Pass the focusable input itself, or a container (e.g. .phone-wrap, .airport-dropdown-wrap).
+ */
+function flagField(el) {
+  if (!el) return;
+  el.classList.add('field-error');
+  el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+/** Remove all glowing error borders from the form before re-validating. */
+function clearFieldFlags() {
+  document.querySelectorAll('.field-error').forEach(el => el.classList.remove('field-error'));
+}
+
+/** Capitalise the first letter of every word (for Full Name on submit). */
+function toTitleCase(str) {
+  return str.replace(/\S+/g, w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
+}
+
+/** Fetch the Algolia airports dataset once and cache it. */
+async function loadAirports() {
+  if (airportsCache) return airportsCache;
+  const res = await fetch('https://raw.githubusercontent.com/algolia/datasets/master/airports/airports.json');
+  airportsCache = await res.json();
+  return airportsCache;
 }
 
 function fileToBase64(file) {
@@ -110,8 +139,10 @@ document.getElementById('return-home-btn').addEventListener('click', () => {
 });
 
 // Revoke all object URLs held in guest card slot state before the form is torn down.
+// Also destroy any intl-tel-input instances to avoid memory leaks.
 function revokeCardObjectUrls() {
   document.querySelectorAll('.guest-card').forEach(card => {
+    if (card._iti) { try { card._iti.destroy(); } catch (e) {} card._iti = null; }
     if (!card._docSlots) return;
     Object.values(card._docSlots).forEach(state => {
       if (state.newFile && state.newFile.objectUrl) {
@@ -228,7 +259,11 @@ function renderGuestForms(guests, pickupRequired) {
         <input type="time" class="arrival-time" value="${escapeHtml(saved.arrivalTime || '')}" ${isOverseasSaved ? '' : 'disabled'} />
 
         <label>Arrival airport<span class="req">*</span></label>
-        <input type="text" class="arrival-airport" placeholder="e.g. Singapore Changi (SIN)" value="${escapeHtml(saved.arrivalAirport || '')}" ${isOverseasSaved ? '' : 'disabled'} />
+        <div class="airport-dropdown-wrap" data-value="${escapeHtml(saved.arrivalAirport || '')}">
+          <input type="text" class="airport-search" placeholder="Search by city, airport name or IATA code…" autocomplete="off" ${isOverseasSaved ? '' : 'disabled'} />
+          <div class="airport-dropdown-list" style="display:none;"></div>
+          <input type="hidden" class="arrival-airport" value="${escapeHtml(saved.arrivalAirport || '')}" />
+        </div>
       </div>
     ` : '';
 
@@ -241,7 +276,10 @@ function renderGuestForms(guests, pickupRequired) {
       <input type="text" class="full-name" required placeholder="Exact name as on your travel document" value="${escapeHtml(saved.fullName || '')}" />
 
       <label>Phone number<span class="req">*</span></label>
-      <input type="text" class="phone" required placeholder="+65 9123 4567" value="${escapeHtml(saved.phone || '')}" />
+      <div class="phone-wrap">
+        <input type="tel" class="phone-input" value="${escapeHtml(saved.phone || '')}" />
+      </div>
+      <p class="error-text phone-error" style="display:none;"></p>
 
       <h3 style="margin-top:24px;">Confirm Attendance</h3>
       ${attendanceHtml}
@@ -283,17 +321,37 @@ function renderGuestForms(guests, pickupRequired) {
     };
 
     renderDocSlots(card);
+    initCardWidgets(card, saved);
+
+    // Clear field-error highlight on any plain input/select interaction
+    card.querySelectorAll('.full-name, .arrival-flight-number, .arrival-date, .arrival-time, .attendance-select').forEach(el => {
+      el.addEventListener('input', () => el.classList.remove('field-error'));
+      el.addEventListener('change', () => el.classList.remove('field-error'));
+    });
+    // Doc slots: clear on any upload/remove (re-render handles it via renderDocSlots)
   });
 
   container.querySelectorAll('.overseas-checkbox').forEach(checkbox => {
     checkbox.addEventListener('change', () => {
-      const fieldsWrap = checkbox.closest('.guest-card').querySelector('.overseas-fields');
-      const inputs = fieldsWrap.querySelectorAll('input');
+      const guestCard = checkbox.closest('.guest-card');
+      const fieldsWrap = guestCard.querySelector('.overseas-fields');
       fieldsWrap.dataset.active = checkbox.checked;
-      inputs.forEach(inp => {
+
+      // Enable/disable all plain inputs except the hidden airport value
+      fieldsWrap.querySelectorAll('input:not([type="hidden"])').forEach(inp => {
         inp.disabled = !checkbox.checked;
         if (!checkbox.checked) inp.value = '';
       });
+
+      // Also clear the airport hidden value and search display
+      if (!checkbox.checked) {
+        const wrap = fieldsWrap.querySelector('.airport-dropdown-wrap');
+        if (wrap) {
+          wrap.querySelector('.arrival-airport').value = '';
+          wrap.querySelector('.airport-search').value = '';
+          wrap.querySelector('.airport-dropdown-list').style.display = 'none';
+        }
+      }
     });
   });
 
@@ -301,6 +359,164 @@ function renderGuestForms(guests, pickupRequired) {
     checkbox.addEventListener('change', () => {
       renderDocSlots(checkbox.closest('.guest-card'));
     });
+  });
+}
+
+/** Initialise intl-tel-input on the phone field and airport search on a guest card. */
+async function initCardWidgets(card, saved) {
+  // ---- Phone: intl-tel-input ----
+  const phoneInput = card.querySelector('.phone-input');
+  if (phoneInput && window.intlTelInput) {
+    const iti = window.intlTelInput(phoneInput, {
+      initialCountry: 'sg',
+      separateDialCode: true,
+      autoPlaceholder: 'aggressive',
+      formatAsYouType: false,          // disabled — the library permanently kills its own
+                                       // formatter when it writes a space (sets
+                                       // userOverrideFormatting=true). We format manually.
+      placeholderNumberType: 'MOBILE',
+    });
+    card._iti = iti;
+
+    // Compute max national digit count using the same algorithm as the library's
+    // _updateMaxLength (unavailable without strictMode, which breaks formatting).
+    function computeMaxDigits() {
+      const utils = window.intlTelInput && window.intlTelInput.utils;
+      if (!utils) return null;
+      const iso2 = iti.getSelectedCountryData().iso2;
+      if (!iso2) return null;
+      try {
+        let example = utils.getExampleNumber(iso2, false, utils.numberType.MOBILE, true);
+        let lastValid = example;
+        while (utils.isPossibleNumber(example, iso2)) { lastValid = example; example += '0'; }
+        return utils.getCoreNumber(lastValid, iso2).length;
+      } catch (e) { return null; }
+    }
+
+    // Replicate the library's _formatNumberAsYouType: prepend dial code so
+    // libphonenumber can parse in context, format, then strip dial code back off.
+    function formatCurrentValue() {
+      const utils = window.intlTelInput && window.intlTelInput.utils;
+      if (!utils) return;
+      const { iso2, dialCode } = iti.getSelectedCountryData();
+      const val = phoneInput.value.trim();
+      if (!val) return;
+      const fullNumber = (val.charAt(0) !== '+' && dialCode) ? `+${dialCode}${val}` : val;
+      let formatted = utils.formatNumberAsYouType(fullNumber, iso2);
+      if (dialCode && formatted.startsWith(`+${dialCode}`)) {
+        formatted = formatted.slice(`+${dialCode}`.length).trim();
+      }
+      if (formatted === phoneInput.value) return;
+      // Restore caret to same logical digit position after formatting
+      const caretPos = phoneInput.selectionStart || 0;
+      const digitsBefore = phoneInput.value.slice(0, caretPos).replace(/\D/g, '').length;
+      phoneInput.value = formatted;
+      let digitsFound = 0, newCaret = formatted.length;
+      for (let i = 0; i < formatted.length; i++) {
+        if (/\d/.test(formatted[i])) digitsFound++;
+        if (digitsFound === digitsBefore) { newCaret = i + 1; break; }
+      }
+      phoneInput.setSelectionRange(newCaret, newCaret);
+    }
+
+    card._phoneMaxDigits = computeMaxDigits();
+
+    phoneInput.addEventListener('countrychange', () => {
+      phoneInput.value = '';
+      card._phoneMaxDigits = computeMaxDigits();
+    });
+
+    // Block non-digits and enforce max length before the character is inserted
+    phoneInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Backspace' || e.key === 'Delete' || e.key === 'Tab' ||
+          e.key === 'Escape' || e.key.startsWith('Arrow') ||
+          e.key === 'Home' || e.key === 'End' || e.ctrlKey || e.metaKey) return;
+      if (!/^\d$/.test(e.key)) { e.preventDefault(); return; }
+      const maxDigits = card._phoneMaxDigits;
+      if (maxDigits && phoneInput.value.replace(/\D/g, '').length >= maxDigits) {
+        e.preventDefault(); return;
+      }
+    });
+
+    // Format after each keystroke; clear error highlight
+    phoneInput.addEventListener('input', () => {
+      formatCurrentValue();
+      card.querySelector('.phone-wrap')?.classList.remove('field-error');
+      const phoneError = card.querySelector('.phone-error');
+      if (phoneError) phoneError.style.display = 'none';
+    });
+
+    if (saved.phone) { iti.setNumber(saved.phone); }
+  }
+
+  // ---- Airport: searchable dropdown ----
+  const airportWrap = card.querySelector('.airport-dropdown-wrap');
+  if (!airportWrap) return;
+
+  const searchInput = airportWrap.querySelector('.airport-search');
+  const dropdownList = airportWrap.querySelector('.airport-dropdown-list');
+  const hiddenInput = airportWrap.querySelector('.arrival-airport');
+
+  // If there's a saved value, display it in the search box
+  if (saved.arrivalAirport) {
+    searchInput.value = saved.arrivalAirport;
+  }
+
+  let debounceTimer = null;
+
+  searchInput.addEventListener('input', () => {
+    clearTimeout(debounceTimer);
+    const query = searchInput.value.trim().toLowerCase();
+    if (!query) {
+      dropdownList.style.display = 'none';
+      hiddenInput.value = '';
+      return;
+    }
+    debounceTimer = setTimeout(async () => {
+      const airports = await loadAirports();
+      const matches = airports.filter(a =>
+        a.name.toLowerCase().includes(query) ||
+        a.city.toLowerCase().includes(query) ||
+        a.iata_code.toLowerCase().includes(query) ||
+        a.country.toLowerCase().includes(query)
+      ).slice(0, 30); // cap at 30 results
+
+      dropdownList.innerHTML = '';
+      if (!matches.length) {
+        dropdownList.innerHTML = '<div class="airport-option airport-option-empty">No airports found</div>';
+      } else {
+        matches.forEach(a => {
+          const opt = document.createElement('div');
+          opt.className = 'airport-option';
+          opt.innerHTML = `<span class="airport-iata">${escapeHtml(a.iata_code)}</span><span class="airport-label">${escapeHtml(a.name)}, ${escapeHtml(a.city)}, ${escapeHtml(a.country)}</span>`;
+          opt.addEventListener('mousedown', e => {
+            e.preventDefault(); // prevent blur before click registers
+            const displayValue = `${a.iata_code} – ${a.name}, ${a.city} (${a.country})`;
+            searchInput.value = displayValue;
+            hiddenInput.value = displayValue;
+            dropdownList.style.display = 'none';
+          });
+          dropdownList.appendChild(opt);
+        });
+      }
+      dropdownList.style.display = 'block';
+    }, 150);
+  });
+
+  searchInput.addEventListener('blur', () => {
+    // Small delay so mousedown on an option fires first
+    setTimeout(() => { dropdownList.style.display = 'none'; }, 200);
+  });
+
+  searchInput.addEventListener('focus', () => {
+    if (searchInput.value.trim() && dropdownList.children.length) {
+      dropdownList.style.display = 'block';
+    }
+  });
+
+  // Clear error highlight as soon as user starts typing in airport search
+  searchInput.addEventListener('input', () => {
+    airportWrap.classList.remove('field-error');
   });
 }
 
@@ -420,6 +636,7 @@ function renderDocSlots(card) {
 document.getElementById('rsvp-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   setError('form-error', '');
+  clearFieldFlags(); // remove any previous red borders before re-validating
 
   if (!currentParty) return;
 
@@ -430,8 +647,25 @@ document.getElementById('rsvp-form').addEventListener('submit', async (e) => {
   for (const card of guestCards) {
     const name = card.dataset.guestName;
     const pickupRequired = card.dataset.pickupRequired === 'true';
-    const fullName = card.querySelector('.full-name').value.trim();
-    const phone = card.querySelector('.phone').value.trim();
+    const rawFullName = card.querySelector('.full-name').value.trim();
+    const fullName = toTitleCase(rawFullName); // capitalise first letter of each word
+
+    // Phone: validate via intl-tel-input if available, else fall back to raw value
+    let phone = '';
+    const iti = card._iti;
+    if (iti) {
+      if (!iti.isValidNumber()) {
+        const phoneWrap = card.querySelector('.phone-wrap');
+        const phoneError = card.querySelector('.phone-error');
+        if (phoneError) { phoneError.textContent = `Please enter a valid phone number for ${name}.`; phoneError.style.display = 'block'; }
+        setError('form-error', `Please enter a valid phone number for ${name}.`);
+        flagField(phoneWrap);
+        return;
+      }
+      phone = iti.getNumber(); // E.164 format e.g. +6591234567
+    } else {
+      phone = card.querySelector('.phone-input').value.trim();
+    }
 
     // These fields only exist in the DOM at all when this party's "Pickup"
     // flag is set — otherwise there's nothing to read or validate, and the
@@ -440,25 +674,52 @@ document.getElementById('rsvp-form').addEventListener('submit', async (e) => {
     const arrivalFlightNumber = pickupRequired ? card.querySelector('.arrival-flight-number').value.trim() : '';
     const arrivalDate = pickupRequired ? card.querySelector('.arrival-date').value : '';
     const arrivalTime = pickupRequired ? card.querySelector('.arrival-time').value : '';
-    const arrivalAirport = pickupRequired ? card.querySelector('.arrival-airport').value.trim() : '';
-    if (!fullName || !phone) {
-      setError('form-error', `Please complete all required fields for ${name}.`);
+    const arrivalAirportInput = pickupRequired ? card.querySelector('.arrival-airport') : null;
+    const arrivalAirport = arrivalAirportInput ? arrivalAirportInput.value.trim() : '';
+
+    if (!fullName) {
+      const el = card.querySelector('.full-name');
+      setError('form-error', `Please enter the full name for ${name}.`);
+      flagField(el);
       return;
     }
 
-    if (pickupRequired && overseasChecked && (!arrivalFlightNumber || !arrivalDate || !arrivalTime || !arrivalAirport)) {
-      setError('form-error', `Please complete the overseas travel details for ${name}.`);
-      return;
+    if (pickupRequired && overseasChecked) {
+      if (!arrivalFlightNumber) {
+        const el = card.querySelector('.arrival-flight-number');
+        setError('form-error', `Please enter the arrival flight number for ${name}.`);
+        flagField(el);
+        return;
+      }
+      if (!arrivalDate) {
+        const el = card.querySelector('.arrival-date');
+        setError('form-error', `Please enter the arrival date for ${name}.`);
+        flagField(el);
+        return;
+      }
+      if (!arrivalTime) {
+        const el = card.querySelector('.arrival-time');
+        setError('form-error', `Please enter the arrival time for ${name}.`);
+        flagField(el);
+        return;
+      }
+      if (!arrivalAirport) {
+        const el = card.querySelector('.airport-dropdown-wrap');
+        setError('form-error', `Please select an arrival airport for ${name}.`);
+        flagField(el);
+        return;
+      }
     }
 
     const attendance = {};
-    let attendanceOk = true;
+    let firstBadAttendance = null;
     card.querySelectorAll('.attendance-select').forEach(sel => {
-      if (!sel.value) attendanceOk = false;
+      if (!sel.value && !firstBadAttendance) firstBadAttendance = sel;
       attendance[sel.dataset.event] = sel.value;
     });
-    if (!attendanceOk) {
+    if (firstBadAttendance) {
       setError('form-error', `Please confirm attendance for every event for ${name}.`);
+      flagField(firstBadAttendance);
       return;
     }
 
@@ -470,7 +731,9 @@ document.getElementById('rsvp-form').addEventListener('submit', async (e) => {
     for (const slotName of requiredSlots) {
       const state = slots[slotName];
       if (!state.existingFile && !state.newFile) {
+        const el = card.querySelector(`.doc-slot[data-slot="${slotName}"]`);
         setError('form-error', `Please upload a ${slotName} for ${name}.`);
+        flagField(el);
         return;
       }
     }
