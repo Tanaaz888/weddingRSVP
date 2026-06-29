@@ -39,11 +39,19 @@
  *  ...followed by Identification 1 / 2 / 3 at the very end.
  *
  *  Uploaded verification photos are saved into Drive under a folder called
- *  UPLOAD_FOLDER_NAME, with one SUBFOLDER PER GUEST (named after their full
- *  name) inside it — so everyone's photos are kept separate and easy to find.
+ *  UPLOAD_FOLDER_NAME, with one SUBFOLDER PER GUEST — named after their
+ *  "Name" column value (NOT "Full Name"), so the folder stays stable even if
+ *  someone edits their Full Name later — no orphan folders pile up.
  *
  *  If a guest uploads MORE than 3 verification photos, photos 4+ get appended
  *  into the "Identification 3" cell (one link per line) so nothing is lost.
+ *
+ *  RE-VISITING THE FORM: when the party leader looks up their name again, the
+ *  form comes back pre-filled with whatever was last submitted (so they can
+ *  edit it instead of starting over). For privacy, previously uploaded
+ *  attachments are shown as FILENAMES ONLY (no image preview, no direct
+ *  link) — the leader can remove any of them (which deletes that file from
+ *  Drive on the next submit) or add new ones alongside the existing ones.
  *
  * EVENT DATE/TIME — your sheet doesn't store these, so set them here:
  */
@@ -193,7 +201,8 @@ function getPartyByName(typedName) {
 
   const guests = partyRows.map(r => ({
     name: String(r.rowData[nameCol]).trim(),
-    invitedEvents: invitedEvents
+    invitedEvents: invitedEvents,
+    savedData: buildSavedData(r.rowData, headers, invitedEvents)
   }));
 
   if (!guests.length) {
@@ -201,6 +210,51 @@ function getPartyByName(typedName) {
   }
 
   return { status: 'ok', matchedName: ownName, guests: guests };
+}
+
+/** Whatever's already in this guest's row, shaped for the form to pre-fill with. */
+function buildSavedData(rowData, headers, invitedEvents) {
+  const rawGet = colName => {
+    const c = colIndex(headers, colName);
+    return c === -1 ? '' : rowData[c];
+  };
+  const get = colName => String(rawGet(colName) || '').trim();
+
+  // Sheets sometimes auto-converts date/time-looking strings into real Date
+  // objects — <input type="date"/"time"> needs an exact "YYYY-MM-DD" /
+  // "HH:MM" string, so reformat if that happened.
+  const getDate = colName => {
+    const v = rawGet(colName);
+    if (v instanceof Date) return Utilities.formatDate(v, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+    return String(v || '').trim();
+  };
+  const getTime = colName => {
+    const v = rawGet(colName);
+    if (v instanceof Date) return Utilities.formatDate(v, Session.getScriptTimeZone(), 'HH:mm');
+    return String(v || '').trim();
+  };
+
+  const attendance = {};
+  invitedEvents.forEach(ev => {
+    attendance[ev.name] = get(`${ev.name} - Attending`);
+  });
+
+  const existingFiles = getExistingIdentificationLinks(rowData, headers).map(url => ({
+    url: url,
+    fileName: getFileNameFromUrl(url)
+  }));
+
+  return {
+    fullName: get('Full Name'),
+    phone: get('Phone Number'),
+    travellingOverseas: get('Travelling from Overseas'),
+    arrivalFlightNumber: get('Arrival Flight Number'),
+    arrivalDate: getDate('Arrival Travel Date'),
+    arrivalTime: getTime('Arrival Travel Time'),
+    arrivalAirport: get('Arrival Airport'),
+    attendance: attendance,
+    existingFiles: existingFiles
+  };
 }
 
 /**
@@ -213,7 +267,8 @@ function getPartyByName(typedName) {
  *       travellingOverseas,    // "Yes" or "No"
  *       arrivalFlightNumber, arrivalDate, arrivalTime, arrivalAirport,  // only present/used if travellingOverseas === "Yes"
  *       attendance: { "Mehndi": "Yes", "Haldi": "No" },   // only invited events
- *       files: [{ name, mimeType, base64 }, ...]          // any number
+ *       existingFiles: ["https://drive.google.com/...", ...],  // previously uploaded links the user chose to KEEP
+ *       files: [{ name, mimeType, base64 }, ...]          // newly added files (any number)
  *     }, ...
  *   ]
  * }
@@ -259,25 +314,44 @@ function submitRsvp(payload) {
       sheet.getRange(rowNum, col + 1).setValue(guest.attendance[eventName]);
     });
 
-    // Identification photos -> each guest's own subfolder, links into Identification 1/2/3 (overflow into #3)
-    const personFolder = getOrCreatePersonFolder(folder, guest.fullName || guest.name);
-    const links = [];
+    // Identification photos:
+    //  - "kept" = previously uploaded links the user did NOT remove (existingFiles from payload)
+    //  - anything previously stored but NOT in "kept" was removed by the user -> trash it in Drive
+    //  - newly uploaded files get saved into a subfolder named after the guest's "Name" (stable
+    //    even if Full Name changes later, so we never create orphan folders)
+    const previousLinks = getExistingIdentificationLinks(match.rowData, headers);
+    const keptLinks = Array.isArray(guest.existingFiles) ? guest.existingFiles.filter(Boolean) : [];
+    const keptSet = new Set(keptLinks);
+
+    previousLinks.forEach(link => {
+      if (keptSet.has(link)) return;
+      const id = extractDriveFileId(link);
+      if (!id) return;
+      try {
+        DriveApp.getFileById(id).setTrashed(true);
+      } catch (trashErr) {
+        // file already gone / inaccessible — nothing more to do
+      }
+    });
+
+    const personFolder = getOrCreatePersonFolder(folder, guest.name);
+    const newLinks = [];
     (guest.files || []).forEach(file => {
       try {
         const decoded = Utilities.base64Decode(file.base64);
         const blob = Utilities.newBlob(decoded, file.mimeType, file.name);
         const driveFile = personFolder.createFile(blob);
         driveFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-        links.push(driveFile.getUrl());
+        newLinks.push(driveFile.getUrl());
       } catch (fileErr) {
-        links.push('UPLOAD FAILED: ' + file.name);
+        newLinks.push('UPLOAD FAILED: ' + file.name);
       }
     });
 
-
-    if (links.length > 0) writeCell(sheet, headers, rowNum, 'Identification 1', links[0] || '');
-    if (links.length > 1) writeCell(sheet, headers, rowNum, 'Identification 2', links[1] || '');
-    if (links.length > 2) writeCell(sheet, headers, rowNum, 'Identification 3', links.slice(2).join('\n'));
+    const finalLinks = keptLinks.concat(newLinks);
+    writeCell(sheet, headers, rowNum, 'Identification 1', finalLinks[0] || '');
+    writeCell(sheet, headers, rowNum, 'Identification 2', finalLinks[1] || '');
+    writeCell(sheet, headers, rowNum, 'Identification 3', finalLinks.length > 2 ? finalLinks.slice(2).join('\n') : '');
   });
 
   return { success: true };
@@ -286,6 +360,37 @@ function submitRsvp(payload) {
 function writeCell(sheet, headers, rowNum, colName, value) {
   const col = ensureColumn(sheet, headers, colName);
   sheet.getRange(rowNum, col + 1).setValue(value);
+}
+
+/** Pulls a Drive file ID out of a typical Drive share URL. */
+function extractDriveFileId(url) {
+  const match = String(url || '').match(/[-\w]{25,}/);
+  return match ? match[0] : null;
+}
+
+/** Best-effort filename lookup for a stored Drive link; falls back gracefully. */
+function getFileNameFromUrl(url) {
+  const id = extractDriveFileId(url);
+  if (!id) return 'Attachment';
+  try {
+    return DriveApp.getFileById(id).getName();
+  } catch (err) {
+    return 'Attachment (file may have been moved or deleted)';
+  }
+}
+
+/** Reads whatever's currently in Identification 1/2/3 for a row, as a flat
+ *  array of Drive URLs (Identification 3 may hold several, newline-separated). */
+function getExistingIdentificationLinks(rowData, headers) {
+  const links = [];
+  ['Identification 1', 'Identification 2', 'Identification 3'].forEach(colName => {
+    const c = colIndex(headers, colName);
+    if (c === -1) return;
+    const raw = String(rowData[c] || '').trim();
+    if (!raw) return;
+    raw.split('\n').map(s => s.trim()).filter(Boolean).forEach(link => links.push(link));
+  });
+  return links;
 }
 
 function getOrCreateUploadFolder() {

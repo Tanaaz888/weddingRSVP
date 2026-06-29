@@ -302,6 +302,46 @@ select {
 }
 .add-files-btn:hover { background: rgba(28,57,52,0.06); }
 
+.existing-files-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 14px;
+}
+.existing-file-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  background: rgba(28,57,52,0.03);
+  font-family: 'Inter', sans-serif;
+  font-size: 13px;
+}
+.existing-file-icon { flex-shrink: 0; }
+.existing-file-name {
+  flex: 1;
+  color: var(--charcoal);
+  word-break: break-word;
+}
+.existing-file-remove {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--rose);
+  font-size: 11px;
+  line-height: 1;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.existing-file-remove:hover { background: var(--rose); color: #fff; }
+
 .file-previews {
   display: flex;
   flex-wrap: wrap;

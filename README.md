@@ -34,6 +34,12 @@ The script will also **automatically add** one column per event the first time a
 
 > If someone uploads more than 3 ID photos, photos 4 and onward get appended into the `Identification 3` cell (one link per line) so nothing is lost — they're not dropped.
 
+> **Re-submitting / editing**: when the party leader looks their name up again, the form comes back pre-filled with whatever was last saved for every person in the party (names, phone, attendance, overseas travel details) — so they're editing, not starting from scratch.
+
+> **Existing attachments on re-visit**: for privacy, previously uploaded files show up as a **filename only** — no thumbnail, no preview, no clickable link. The leader can remove any of them (✕) to replace it, or just leave it and add more alongside it. Newly added files in the same session still get a full thumbnail preview, since those are still sitting in the browser and haven't been uploaded yet.
+
+> **Upload folders use the `Name` column**, not `Full Name` — so if someone updates their passport-name spelling later, their files stay in the same folder instead of creating a new orphaned one.
+
 > Verification photos are saved into Drive under a folder named "RSVP Uploads - Han Seng & Tanaaz", with a **separate subfolder for each guest** (named after their full name) inside it — so every person's photos stay together and are easy to find.
 
 > On the form itself, guests can add photos in multiple batches (it doesn't replace previously added ones), see a small thumbnail preview of each, and remove any individual one with the ✕ button before submitting.

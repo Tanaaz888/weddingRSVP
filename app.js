@@ -130,6 +130,7 @@ function renderGuestForms(guests) {
   container.innerHTML = '';
 
   guests.forEach((guest, idx) => {
+    const saved = guest.savedData || {};
     const card = document.createElement('div');
     card.className = 'guest-card';
     card.dataset.guestName = guest.name;
@@ -137,6 +138,7 @@ function renderGuestForms(guests) {
     let attendanceHtml = '';
     if (guest.invitedEvents.length) {
       guest.invitedEvents.forEach(ev => {
+        const savedValue = (saved.attendance && saved.attendance[ev.name]) || '';
         attendanceHtml += `
           <div class="attendance-row">
             <span>
@@ -144,9 +146,9 @@ function renderGuestForms(guests) {
               <span class="edate">${escapeHtml(ev.dateTime)}</span>
             </span>
             <select class="attendance-select" data-event="${escapeHtml(ev.name)}" required>
-              <option value="" disabled selected>Select</option>
-              <option value="Yes">Attending</option>
-              <option value="No">Not Attending</option>
+              <option value="" ${savedValue ? '' : 'selected'} disabled>Select</option>
+              <option value="Yes" ${savedValue === 'Yes' ? 'selected' : ''}>Attending</option>
+              <option value="No" ${savedValue === 'No' ? 'selected' : ''}>Not Attending</option>
             </select>
           </div>`;
       });
@@ -154,49 +156,54 @@ function renderGuestForms(guests) {
       attendanceHtml = '<p class="subline" style="margin:8px 0; text-align:left;">No events listed for this guest.</p>';
     }
 
+    const isOverseasSaved = String(saved.travellingOverseas || '').toLowerCase() === 'yes';
+
     card.innerHTML = `
       <div class="guest-name-tag">Guest ${idx + 1}</div>
       <h2>${escapeHtml(guest.name)}</h2>
 
       <label>Full name<span class="req">*</span></label>
       <p class="helper-text">Full name as per passport</p>
-      <input type="text" class="full-name" required placeholder="Exact name as on your travel document" />
+      <input type="text" class="full-name" required placeholder="Exact name as on your travel document" value="${escapeHtml(saved.fullName || '')}" />
 
       <label>Phone number<span class="req">*</span></label>
-      <input type="text" class="phone" required placeholder="+65 9123 4567" />
+      <input type="text" class="phone" required placeholder="+65 9123 4567" value="${escapeHtml(saved.phone || '')}" />
 
       <h3 style="margin-top:24px;">Confirm Attendance</h3>
       ${attendanceHtml}
 
       <h3 style="margin-top:24px;">Travel Details</h3>
       <label class="checkbox-label">
-        <input type="checkbox" class="overseas-checkbox" />
+        <input type="checkbox" class="overseas-checkbox" ${isOverseasSaved ? 'checked' : ''} />
         Travelling from overseas
       </label>
 
-      <div class="overseas-fields" data-active="false">
+      <div class="overseas-fields" data-active="${isOverseasSaved}">
         <label>Arrival flight number<span class="req">*</span></label>
-        <input type="text" class="arrival-flight-number" placeholder="e.g. SQ123" disabled />
+        <input type="text" class="arrival-flight-number" placeholder="e.g. SQ123" value="${escapeHtml(saved.arrivalFlightNumber || '')}" ${isOverseasSaved ? '' : 'disabled'} />
 
         <label>Arrival travel date<span class="req">*</span></label>
-        <input type="date" class="arrival-date" disabled />
+        <input type="date" class="arrival-date" value="${escapeHtml(saved.arrivalDate || '')}" ${isOverseasSaved ? '' : 'disabled'} />
 
         <label>Arrival travel time<span class="req">*</span></label>
-        <input type="time" class="arrival-time" disabled />
+        <input type="time" class="arrival-time" value="${escapeHtml(saved.arrivalTime || '')}" ${isOverseasSaved ? '' : 'disabled'} />
 
         <label>Arrival airport<span class="req">*</span></label>
-        <input type="text" class="arrival-airport" placeholder="e.g. Singapore Changi (SIN)" disabled />
+        <input type="text" class="arrival-airport" placeholder="e.g. Singapore Changi (SIN)" value="${escapeHtml(saved.arrivalAirport || '')}" ${isOverseasSaved ? '' : 'disabled'} />
       </div>
 
       <label>Photo(s) for verification (Passport / Visa / OCI / Aadhar card)<span class="req">*</span> <span style="font-weight:400;">(upload as many as needed)</span></label>
       <div class="file-input-wrap">
         <input type="file" class="id-files-input" accept="image/*,application/pdf" multiple style="display:none" />
         <button type="button" class="add-files-btn">+ Add Attachment(s)</button>
+        <div class="existing-files-list"></div>
         <div class="file-previews"></div>
       </div>
     `;
     container.appendChild(card);
-    card._idFiles = []; // each guest card keeps its own in-memory list of selected files
+    card._idFiles = []; // newly added files this session (with preview thumbnails)
+    card._existingFiles = (saved.existingFiles || []).slice(); // previously uploaded — filename only, no preview
+    renderExistingFiles(card);
   });
 
   container.querySelectorAll('.overseas-checkbox').forEach(checkbox => {
@@ -222,6 +229,40 @@ function renderGuestForms(guests) {
       hiddenInput.value = ''; // reset so the same file can be re-added later if removed
       renderFilePreviews(card);
     });
+  });
+}
+
+// Previously uploaded attachments — filename only, no thumbnail/preview/link (privacy).
+function renderExistingFiles(card) {
+  const wrap = card.querySelector('.existing-files-list');
+  wrap.innerHTML = '';
+
+  card._existingFiles.forEach((file, index) => {
+    const item = document.createElement('div');
+    item.className = 'existing-file-item';
+
+    const icon = document.createElement('span');
+    icon.className = 'existing-file-icon';
+    icon.textContent = '📎';
+
+    const label = document.createElement('span');
+    label.className = 'existing-file-name';
+    label.textContent = file.fileName;
+
+    const removeBtn = document.createElement('button');
+    removeBtn.type = 'button';
+    removeBtn.className = 'existing-file-remove';
+    removeBtn.setAttribute('aria-label', `Remove ${file.fileName}`);
+    removeBtn.textContent = '✕';
+    removeBtn.addEventListener('click', () => {
+      card._existingFiles.splice(index, 1);
+      renderExistingFiles(card);
+    });
+
+    item.appendChild(icon);
+    item.appendChild(label);
+    item.appendChild(removeBtn);
+    wrap.appendChild(item);
   });
 }
 
@@ -286,9 +327,10 @@ document.getElementById('rsvp-form').addEventListener('submit', async (e) => {
     const arrivalDate = card.querySelector('.arrival-date').value;
     const arrivalTime = card.querySelector('.arrival-time').value;
     const arrivalAirport = card.querySelector('.arrival-airport').value.trim();
-    const files = card._idFiles || [];
+    const newFiles = card._idFiles || [];
+    const keptExisting = card._existingFiles || [];
 
-    if (!fullName || !phone || files.length === 0) {
+    if (!fullName || !phone || (newFiles.length + keptExisting.length) === 0) {
       setError('form-error', `Please complete all required fields for ${name}.`);
       return;
     }
@@ -313,7 +355,9 @@ document.getElementById('rsvp-form').addEventListener('submit', async (e) => {
       name, fullName, phone,
       travellingOverseas: overseasChecked ? 'Yes' : 'No',
       arrivalFlightNumber, arrivalDate, arrivalTime, arrivalAirport,
-      attendance, _files: files
+      attendance,
+      existingFiles: keptExisting.map(f => f.url),
+      _files: newFiles
     });
   }
 
