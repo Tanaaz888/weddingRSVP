@@ -1,6 +1,7 @@
 // ---------- State ----------
 let currentParty = null; // { matchedName, guests: [{ name, invitedEvents: [{name, dateTime}] }] }
 let airportsCache = null; // loaded once on first form render
+const MAX_FILES_PER_SLOT = 5;
 
 // ---------- Helpers ----------
 function show(screenId) {
@@ -145,9 +146,9 @@ function revokeCardObjectUrls() {
     if (card._iti) { try { card._iti.destroy(); } catch (e) {} card._iti = null; }
     if (!card._docSlots) return;
     Object.values(card._docSlots).forEach(state => {
-      if (state.newFile && state.newFile.objectUrl) {
-        URL.revokeObjectURL(state.newFile.objectUrl);
-      }
+      (state.newFiles || []).forEach(f => {
+        if (f.objectUrl) URL.revokeObjectURL(f.objectUrl);
+      });
     });
   });
 }
@@ -297,7 +298,7 @@ function renderGuestForms(guests, pickupRequired) {
 
       ${travelDetailsHtml}
       <label>Attachment(s) for verification (Foreigners = Passport + Visa/OCI, Locals = Aadhar Card)<span class="req">*</span></label>
-      <p class="helper-text">Required by hotels under local Indian law for all guests.</p>
+      <p class="helper-text">Required by hotels under local Indian law for all guests. You can upload up to 5 pages/photos per document.</p>
 
       <label class="checkbox-label" style="margin-top:12px;">
         <input type="checkbox" class="local-indian-checkbox" ${(saved.localIndian || '').toLowerCase() === 'yes' ? 'checked' : ''} />
@@ -323,12 +324,13 @@ function renderGuestForms(guests, pickupRequired) {
     `;
     container.appendChild(card);
 
-    // Per-slot state: { existingFile: {fileName, url} | null, newFile: { file: File, objectUrl: string } | null }
-    // objectUrl is created once on file selection and revoked explicitly on removal or form teardown.
+    // Per-slot state: { existingFiles: [{fileName, url}], newFiles: [{ file: File, objectUrl: string }] }
+    // Up to MAX_FILES_PER_SLOT combined (existing + new) per slot.
+    // objectUrls are created once on file selection and revoked explicitly on removal or form teardown.
     card._docSlots = {
-      'Passport':    { existingFile: saved.passport    || null, newFile: null },
-      'Visa / OCI':  { existingFile: saved.visaOci     || null, newFile: null },
-      'Aadhar Card': { existingFile: saved.aadharCard  || null, newFile: null }
+      'Passport':    { existingFiles: saved.passport    || [], newFiles: [] },
+      'Visa / OCI':  { existingFiles: saved.visaOci     || [], newFiles: [] },
+      'Aadhar Card': { existingFiles: saved.aadharCard  || [], newFiles: [] }
     };
 
     renderDocSlots(card);
@@ -583,7 +585,8 @@ async function initCardWidgets(card, saved) {
 
 // Renders the three document slots (Passport, Visa/OCI, Aadhar Card) for a guest card.
 // Shows/hides foreigner vs local slots based on the Local Indian checkbox.
-// Each slot shows EITHER an existing filename+✕ OR a new-file preview+✕ OR an upload button.
+// Each slot shows a list of existing files (filename+✕) and new-file previews (thumbnail+✕),
+// plus an "add more" upload button as long as the combined total is under MAX_FILES_PER_SLOT.
 function renderDocSlots(card) {
   const isLocal = card.querySelector('.local-indian-checkbox').checked;
 
@@ -598,97 +601,120 @@ function renderDocSlots(card) {
     const control = slot.querySelector('.doc-slot-control');
     control.innerHTML = '';
 
-    if (state.existingFile) {
-      // Show existing filename + X to remove
-      const item = document.createElement('div');
-      item.className = 'existing-file-item';
+    const totalCount = state.existingFiles.length + state.newFiles.length;
 
-      const icon = document.createElement('span');
-      icon.className = 'existing-file-icon';
-      icon.textContent = '📎';
+    // Existing files already saved in Drive: filename + X to remove
+    if (state.existingFiles.length) {
+      const list = document.createElement('div');
+      list.className = 'existing-files-list';
+      state.existingFiles.forEach((existingFile, i) => {
+        const item = document.createElement('div');
+        item.className = 'existing-file-item';
 
-      const label = document.createElement('span');
-      label.className = 'existing-file-name';
-      label.textContent = state.existingFile.fileName;
+        const icon = document.createElement('span');
+        icon.className = 'existing-file-icon';
+        icon.textContent = '📎';
 
-      const removeBtn = document.createElement('button');
-      removeBtn.type = 'button';
-      removeBtn.className = 'existing-file-remove';
-      removeBtn.setAttribute('aria-label', `Remove ${state.existingFile.fileName}`);
-      removeBtn.textContent = '✕';
-      removeBtn.addEventListener('click', () => {
-        state.existingFile = null;
-        renderDocSlots(card);
+        const label = document.createElement('span');
+        label.className = 'existing-file-name';
+        label.textContent = existingFile.fileName;
+
+        const removeBtn = document.createElement('button');
+        removeBtn.type = 'button';
+        removeBtn.className = 'existing-file-remove';
+        removeBtn.setAttribute('aria-label', `Remove ${existingFile.fileName}`);
+        removeBtn.textContent = '✕';
+        removeBtn.addEventListener('click', () => {
+          state.existingFiles.splice(i, 1);
+          renderDocSlots(card);
+        });
+
+        item.appendChild(icon);
+        item.appendChild(label);
+        item.appendChild(removeBtn);
+        list.appendChild(item);
       });
+      control.appendChild(list);
+    }
 
-      item.appendChild(icon);
-      item.appendChild(label);
-      item.appendChild(removeBtn);
-      control.appendChild(item);
+    // Newly added files this session: thumbnail preview + X to remove
+    if (state.newFiles.length) {
+      const previews = document.createElement('div');
+      previews.className = 'file-previews';
+      state.newFiles.forEach((newFile, i) => {
+        const item = document.createElement('div');
+        item.className = 'file-preview-item';
 
-    } else if (state.newFile) {
-      // Show new file preview + X to remove
-      const item = document.createElement('div');
-      item.className = 'file-preview-item';
+        const thumb = document.createElement('div');
+        thumb.className = 'file-preview-thumb';
+        if (newFile.objectUrl) {
+          // objectUrl was created once when the file was selected; reuse it here
+          // so re-renders (e.g. toggling Local Indian) never produce a broken image.
+          const img = document.createElement('img');
+          img.src = newFile.objectUrl;
+          thumb.appendChild(img);
+        } else {
+          thumb.textContent = 'PDF';
+          thumb.classList.add('file-preview-thumb-pdf');
+        }
 
-      const thumb = document.createElement('div');
-      thumb.className = 'file-preview-thumb';
-      if (state.newFile.objectUrl) {
-        // objectUrl was created once when the file was selected; reuse it here
-        // so re-renders (e.g. toggling Local Indian) never produce a broken image.
-        const img = document.createElement('img');
-        img.src = state.newFile.objectUrl;
-        thumb.appendChild(img);
-      } else {
-        thumb.textContent = 'PDF';
-        thumb.classList.add('file-preview-thumb-pdf');
-      }
+        const label = document.createElement('div');
+        label.className = 'file-preview-name';
+        label.textContent = newFile.file.name;
 
-      const label = document.createElement('div');
-      label.className = 'file-preview-name';
-      label.textContent = state.newFile.file.name;
+        const removeBtn = document.createElement('button');
+        removeBtn.type = 'button';
+        removeBtn.className = 'file-preview-remove';
+        removeBtn.setAttribute('aria-label', `Remove ${newFile.file.name}`);
+        removeBtn.textContent = '✕';
+        removeBtn.addEventListener('click', () => {
+          // Revoke here — the only place the URL is discarded — not on img.onload.
+          if (newFile.objectUrl) URL.revokeObjectURL(newFile.objectUrl);
+          state.newFiles.splice(i, 1);
+          renderDocSlots(card);
+        });
 
-      const removeBtn = document.createElement('button');
-      removeBtn.type = 'button';
-      removeBtn.className = 'file-preview-remove';
-      removeBtn.setAttribute('aria-label', `Remove ${state.newFile.file.name}`);
-      removeBtn.textContent = '✕';
-      removeBtn.addEventListener('click', () => {
-        // Revoke here — the only place the URL is discarded — not on img.onload.
-        if (state.newFile.objectUrl) URL.revokeObjectURL(state.newFile.objectUrl);
-        state.newFile = null;
-        renderDocSlots(card);
+        item.appendChild(thumb);
+        item.appendChild(label);
+        item.appendChild(removeBtn);
+        previews.appendChild(item);
       });
+      control.appendChild(previews);
+    }
 
-      item.appendChild(thumb);
-      item.appendChild(label);
-      item.appendChild(removeBtn);
-      control.appendChild(item);
-
-    } else {
-      // Show upload button
+    // "Add more" upload button, shown as long as we're under the per-slot cap
+    if (totalCount < MAX_FILES_PER_SLOT) {
       const hiddenInput = document.createElement('input');
       hiddenInput.type = 'file';
       hiddenInput.accept = 'image/*,application/pdf';
+      hiddenInput.multiple = true;
       hiddenInput.style.display = 'none';
 
       const uploadBtn = document.createElement('button');
       uploadBtn.type = 'button';
       uploadBtn.className = 'add-files-btn';
-      uploadBtn.textContent = `+ Upload ${slotName}`;
+      uploadBtn.style.marginTop = totalCount ? '12px' : '0';
+      uploadBtn.textContent = totalCount ? `+ Add another ${slotName} page` : `+ Upload ${slotName}`;
 
       uploadBtn.addEventListener('click', () => hiddenInput.click());
       hiddenInput.addEventListener('change', () => {
-        if (hiddenInput.files[0]) {
-          const file = hiddenInput.files[0];
+        const remaining = MAX_FILES_PER_SLOT - (state.existingFiles.length + state.newFiles.length);
+        const filesToAdd = Array.from(hiddenInput.files).slice(0, Math.max(remaining, 0));
+        filesToAdd.forEach(file => {
           const objectUrl = file.type && file.type.startsWith('image/') ? URL.createObjectURL(file) : null;
-          state.newFile = { file, objectUrl };
-          renderDocSlots(card);
-        }
+          state.newFiles.push({ file, objectUrl });
+        });
+        renderDocSlots(card);
       });
 
       control.appendChild(hiddenInput);
       control.appendChild(uploadBtn);
+    } else {
+      const maxNote = document.createElement('p');
+      maxNote.className = 'helper-text';
+      maxNote.style.margin = '10px 0 0';
+      maxNote.textContent = `Maximum of ${MAX_FILES_PER_SLOT} files reached for ${slotName}.`;
+      control.appendChild(maxNote);
     }
   });
 }
@@ -845,7 +871,7 @@ document.getElementById('rsvp-form').addEventListener('submit', async (e) => {
     const requiredSlots = isLocal ? ['Aadhar Card'] : ['Passport', 'Visa / OCI'];
     for (const slotName of requiredSlots) {
       const state = slots[slotName];
-      if (!state.existingFile && !state.newFile) {
+      if (!state.existingFiles.length && !state.newFiles.length) {
         const el = card.querySelector(`.doc-slot[data-slot="${slotName}"]`);
         setError('form-error', `Please upload a ${slotName} for ${name}.`);
         flagField(el);
@@ -857,8 +883,8 @@ document.getElementById('rsvp-form').addEventListener('submit', async (e) => {
     const docSlotPayload = {};
     for (const [slotName, state] of Object.entries(slots)) {
       docSlotPayload[slotName] = {
-        existingUrl: state.existingFile ? state.existingFile.url : null,
-        newFile: state.newFile ? state.newFile.file : null
+        existingUrls: state.existingFiles.map(f => f.url),
+        newFiles: state.newFiles.map(f => f.file)
       };
     }
 
@@ -880,16 +906,14 @@ document.getElementById('rsvp-form').addEventListener('submit', async (e) => {
     for (const guest of guestsPayload) {
       const encodedSlots = {};
       for (const [slotName, slot] of Object.entries(guest.docSlots)) {
-        encodedSlots[slotName] = { existingUrl: slot.existingUrl };
-        if (slot.newFile) {
-          const base64 = await fileToBase64(slot.newFile);
-          encodedSlots[slotName].newFile = {
-            name: slot.newFile.name,
-            mimeType: slot.newFile.type || 'application/octet-stream',
+        encodedSlots[slotName] = { existingUrls: slot.existingUrls, newFiles: [] };
+        for (const file of slot.newFiles) {
+          const base64 = await fileToBase64(file);
+          encodedSlots[slotName].newFiles.push({
+            name: file.name,
+            mimeType: file.type || 'application/octet-stream',
             base64
-          };
-        } else {
-          encodedSlots[slotName].newFile = null;
+          });
         }
       }
       guest.docSlots = encodedSlots;

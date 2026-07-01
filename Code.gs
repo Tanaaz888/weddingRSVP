@@ -58,10 +58,14 @@
  *  Uploaded verification photos are saved into Drive under a folder called
  *  UPLOAD_FOLDER_NAME, with one SUBFOLDER PER GUEST — named after their
  *  "Name" column value (NOT "Full Name"), so the folder stays stable even if
- *  someone edits their Full Name later — no orphan folders pile up.
+ *  someone edits their Full Name later — no orphan folders pile up. Inside
+ *  each guest's folder, there's a further subfolder per document type
+ *  (Passport / Visa / OCI / Aadhar Card), e.g.
+ *  UPLOAD_FOLDER_NAME/Guest Name/Passport/page1.jpg — so multi-page uploads
+ *  for the same document stay grouped together.
  *
- *  If a guest uploads MORE than 3 verification photos, photos 4+ get appended
- *  into the "Identification 3" cell (one link per line) so nothing is lost.
+ *  Each document slot accepts up to MAX_FILES_PER_SLOT files (currently 5).
+ *  The sheet cell for that slot stores one Drive link per line.
  *
  *  RE-VISITING THE FORM: when the party leader looks up their name again, the
  *  form comes back pre-filled with whatever was last submitted (so they can
@@ -84,6 +88,7 @@ const EVENT_INFO = {
 const EVENT_COLUMNS = ['Mehndi', 'Haldi', 'Sangeet', 'Vidhi', 'Tea ceremony', 'Dinner'];
 const SHEET_NAME = 'Sheet1'; // change if your tab is named differently
 const UPLOAD_FOLDER_NAME = 'RSVP Uploads - Han Seng & Tanaaz';
+const MAX_FILES_PER_SLOT = 5; // per document type (Passport / Visa / OCI / Aadhar Card), matches the form's limit
 
 function doGet(e) {
   try {
@@ -267,13 +272,11 @@ function buildSavedData(rowData, headers, invitedEvents) {
     attendance[ev.name] = get(`${ev.name} - Attending`);
   });
 
-  // Return each document slot independently so the form can show existing
-  // filename + ✕ (or an upload button if empty) for each one separately.
+  // Return each document slot as an array so the form can show every
+  // existing file (filename + ✕) for that slot, not just the first one.
   const makeSlot = colName => {
     const links = getLinksFromCell(rawGet(colName));
-    if (!links.length) return null;
-    const url = links[0];
-    return { url: url, fileName: getFileNameFromUrl(url) };
+    return links.map(url => ({ url: url, fileName: getFileNameFromUrl(url) }));
   };
 
   return {
@@ -357,41 +360,51 @@ function submitRsvp(payload) {
       sheet.getRange(rowNum, col + 1).setValue(guest.attendance[eventName]);
     });
 
-    // Document slots: Passport, Visa / OCI, Aadhar Card
-    // Each slot accepts exactly one file. If the user kept the existing file
-    // (existingUrl present, no newFile), write it back unchanged.
-    // If they removed it (no existingUrl) and uploaded a new one, save that.
-    // If they removed it and didn't upload anything, clear the cell.
-    // Files removed by the user are trashed in Drive.
+    // Document slots: Passport, Visa / OCI, Aadhar Card — each can now hold
+    // up to MAX_FILES_PER_SLOT files. Each slot type gets its own Drive
+    // subfolder inside the guest's personal folder (e.g. .../Guest Name/Passport/).
+    // Kept existing files (by URL) are left untouched; any previously stored
+    // file whose URL is no longer in the kept list was removed by the user
+    // and gets trashed. New files are uploaded into that slot's subfolder.
+    // The cell stores one URL per line, in existing-then-new order.
     const personFolder = getOrCreatePersonFolder(folder, guest.name);
     const DOC_SLOTS = ['Passport', 'Visa / OCI', 'Aadhar Card'];
 
     DOC_SLOTS.forEach(slotName => {
       const slot = (guest.docSlots || {})[slotName] || {};
-      const keptUrl = slot.existingUrl || null;
-      const newFileData = slot.newFile || null;
+      const keptUrls = Array.isArray(slot.existingUrls) ? slot.existingUrls.filter(Boolean) : [];
+      let newFilesData = Array.isArray(slot.newFiles) ? slot.newFiles : [];
+      // Server-side safety net matching the form's MAX_FILES_PER_SLOT cap
+      const remainingSlots = Math.max(MAX_FILES_PER_SLOT - keptUrls.length, 0);
+      newFilesData = newFilesData.slice(0, remainingSlots);
 
-      // Trash any previously stored file for this slot that was removed
-      const prevUrl = getPreviousSlotUrl(match.rowData, headers, slotName);
-      if (prevUrl && prevUrl !== keptUrl) {
-        const id = extractDriveFileId(prevUrl);
-        if (id) { try { DriveApp.getFileById(id).setTrashed(true); } catch (e) {} }
-      }
-
-      let finalUrl = keptUrl || '';
-      if (newFileData && newFileData.base64) {
-        try {
-          const decoded = Utilities.base64Decode(newFileData.base64);
-          const blob = Utilities.newBlob(decoded, newFileData.mimeType, newFileData.name);
-          const driveFile = personFolder.createFile(blob);
-          driveFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-          finalUrl = driveFile.getUrl();
-        } catch (fileErr) {
-          finalUrl = 'UPLOAD FAILED: ' + (newFileData.name || slotName);
+      // Trash any previously stored file for this slot that the user removed
+      const prevUrls = getLinksFromCell(getPreviousSlotUrl(match.rowData, headers, slotName));
+      prevUrls.forEach(prevUrl => {
+        if (keptUrls.indexOf(prevUrl) === -1) {
+          const id = extractDriveFileId(prevUrl);
+          if (id) { try { DriveApp.getFileById(id).setTrashed(true); } catch (e) {} }
         }
+      });
+
+      const finalUrls = keptUrls.slice();
+      if (newFilesData.length) {
+        const slotFolder = getOrCreateSlotFolder(personFolder, slotName);
+        newFilesData.forEach(newFileData => {
+          if (!newFileData || !newFileData.base64) return;
+          try {
+            const decoded = Utilities.base64Decode(newFileData.base64);
+            const blob = Utilities.newBlob(decoded, newFileData.mimeType, newFileData.name);
+            const driveFile = slotFolder.createFile(blob);
+            driveFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+            finalUrls.push(driveFile.getUrl());
+          } catch (fileErr) {
+            finalUrls.push('UPLOAD FAILED: ' + (newFileData.name || slotName));
+          }
+        });
       }
 
-      writeCell(sheet, headers, rowNum, slotName, finalUrl);
+      writeCell(sheet, headers, rowNum, slotName, finalUrls.join('\n'));
     });
   });
 
@@ -457,4 +470,13 @@ function getOrCreatePersonFolder(parentFolder, personName) {
   const existing = parentFolder.getFoldersByName(safeName);
   if (existing.hasNext()) return existing.next();
   return parentFolder.createFolder(safeName);
+}
+
+/** Within a guest's folder, each document type (Passport, Visa / OCI, Aadhar
+ *  Card) gets its own subfolder, so multi-page uploads for that document
+ *  stay grouped together, e.g. .../Guest Name/Passport/page1.jpg. */
+function getOrCreateSlotFolder(personFolder, slotName) {
+  const existing = personFolder.getFoldersByName(slotName);
+  if (existing.hasNext()) return existing.next();
+  return personFolder.createFolder(slotName);
 }
