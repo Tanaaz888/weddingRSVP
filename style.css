@@ -263,6 +263,22 @@ select {
   cursor: pointer;
 }
 
+.travel-toggle-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 32px;
+}
+.travel-toggle-row .travel-toggle {
+  margin: 18px 0 4px;
+}
+
+.domestic-note {
+  padding: 14px 16px;
+  margin: 8px 0 4px;
+  border: 1px solid var(--line);
+  background: rgba(28, 57, 52, 0.03);
+}
+
 .helper-text {
   font-family: 'Inter', sans-serif;
   font-size: 12px;

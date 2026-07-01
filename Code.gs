@@ -39,10 +39,14 @@
  *    - "Local Indian": Yes/No, set by a tickbox on the form. Gates which
  *      document slots are shown — Locals see Aadhar Card only; foreigners
  *      see Passport + Visa / OCI.
- *    - "Travelling from Overseas" is a Yes/No tickbox on the form, only
- *      shown at all if the party's "Pickup" column is ticked. The arrival
- *      flight fields are only filled in (and only required) if that's Yes —
- *      otherwise (or if "Pickup" isn't ticked) they're left blank.
+ *    - "Travelling from Overseas" and "Travelling Domestically" are two
+ *      mutually-exclusive Yes/No tickboxes on the form, only shown at all if
+ *      the party's "Pickup" column is ticked. Ticking one greys out the
+ *      other. The arrival flight fields are only filled in (and only
+ *      required) if "Travelling from Overseas" is Yes. If "Travelling
+ *      Domestically" is Yes instead, no arrival details are collected — the
+ *      guest just sees a note that they'll be followed up with. If "Pickup"
+ *      isn't ticked, all of these columns are left blank.
  *
  *  On the FIRST submission to the sheet, the script auto-adds these columns
  *  right after "Arrival Airport", in this fixed order, all at once — so the
@@ -277,6 +281,7 @@ function buildSavedData(rowData, headers, invitedEvents) {
     phone: get('Phone Number'),
     localIndian: get('Local Indian'),
     travellingOverseas: get('Travelling from Overseas'),
+    travellingDomestically: get('Travelling Domestically'),
     arrivalFlightNumber: get('Arrival Flight Number'),
     arrivalDate: getDate('Arrival Travel Date'),
     arrivalTime: getTime('Arrival Travel Time'),
@@ -320,7 +325,7 @@ function submitRsvp(payload) {
   EVENT_COLUMNS.forEach(eventName => {
     ensureColumn(sheet, headers, `${eventName} - Attending`);
   });
-  ['Local Indian', 'Passport', 'Visa / OCI', 'Aadhar Card'].forEach(colName => {
+  ['Local Indian', 'Passport', 'Visa / OCI', 'Aadhar Card', 'Travelling Domestically'].forEach(colName => {
     ensureColumn(sheet, headers, colName);
   });
 
@@ -338,7 +343,9 @@ function submitRsvp(payload) {
     // columns stay blank even if something odd came in from the browser.
     const pickupRequired = isPickupRequiredForRow(sheet, headers, match.rowData);
     const isOverseas = pickupRequired && String(guest.travellingOverseas || '').trim().toLowerCase() === 'yes';
+    const isDomestic = pickupRequired && !isOverseas && String(guest.travellingDomestically || '').trim().toLowerCase() === 'yes';
     writeCell(sheet, headers, rowNum, 'Travelling from Overseas', pickupRequired ? (isOverseas ? 'Yes' : 'No') : '');
+    writeCell(sheet, headers, rowNum, 'Travelling Domestically', pickupRequired ? (isDomestic ? 'Yes' : 'No') : '');
     writeCell(sheet, headers, rowNum, 'Arrival Flight Number', isOverseas ? (guest.arrivalFlightNumber || '') : '');
     writeCell(sheet, headers, rowNum, 'Arrival Travel Date', isOverseas ? (guest.arrivalDate || '') : '');
     writeCell(sheet, headers, rowNum, 'Arrival Travel Time', isOverseas ? (guest.arrivalTime || '') : '');
