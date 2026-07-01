@@ -62,7 +62,15 @@
  *  each guest's folder, there's a further subfolder per document type
  *  (Passport / Visa / OCI / Aadhar Card), e.g.
  *  UPLOAD_FOLDER_NAME/Guest Name/Passport/page1.jpg — so multi-page uploads
- *  for the same document stay grouped together.
+ *  for the same document stay grouped together. If a document type no
+ *  longer applies to a guest (e.g. they switch their "Local Indian" status)
+ *  or ends up with no files left in it, its entire subfolder is deleted from
+ *  Drive, not just the files inside it — no empty/orphaned folders are left
+ *  behind.
+ *
+ *  If "Pickup" is ticked for a party, guests must tick exactly one of
+ *  "Travelling from overseas" or "Travelling domestically" to submit — the
+ *  form will not let them submit with neither ticked.
  *
  *  Each document slot accepts up to MAX_FILES_PER_SLOT files (currently 5).
  *  The sheet cell for that slot stores one Drive link per line.
@@ -369,8 +377,27 @@ function submitRsvp(payload) {
     // The cell stores one URL per line, in existing-then-new order.
     const personFolder = getOrCreatePersonFolder(folder, guest.name);
     const DOC_SLOTS = ['Passport', 'Visa / OCI', 'Aadhar Card'];
+    const isLocalIndian = String(guest.localIndian || '').trim().toLowerCase() === 'yes';
+    // Slots that don't apply to this guest's current identity type are always
+    // treated as empty server-side, regardless of what the client sent. This
+    // is a safety net: even if the browser resubmits a stale existingUrl for
+    // a slot that no longer applies (e.g. after switching Local Indian
+    // status), the old file still gets trashed and the cell still gets
+    // cleared, instead of the orphaned link lingering forever.
+    const applicableSlots = isLocalIndian ? ['Aadhar Card'] : ['Passport', 'Visa / OCI'];
 
     DOC_SLOTS.forEach(slotName => {
+      const slotApplies = applicableSlots.indexOf(slotName) !== -1;
+
+      // Slot no longer applies at all for this guest (e.g. they switched
+      // Local Indian status) — remove its entire subfolder, including every
+      // file inside it, rather than leaving an empty/orphaned folder behind.
+      if (!slotApplies) {
+        trashSlotFolder(personFolder, slotName);
+        writeCell(sheet, headers, rowNum, slotName, '');
+        return;
+      }
+
       const slot = (guest.docSlots || {})[slotName] || {};
       const keptUrls = Array.isArray(slot.existingUrls) ? slot.existingUrls.filter(Boolean) : [];
       let newFilesData = Array.isArray(slot.newFiles) ? slot.newFiles : [];
@@ -402,6 +429,12 @@ function submitRsvp(payload) {
             finalUrls.push('UPLOAD FAILED: ' + (newFileData.name || slotName));
           }
         });
+      }
+
+      // If every file was removed and none were added, the slot folder is
+      // now empty — remove it entirely rather than leaving an empty folder.
+      if (!finalUrls.length) {
+        trashSlotFolder(personFolder, slotName);
       }
 
       writeCell(sheet, headers, rowNum, slotName, finalUrls.join('\n'));
@@ -479,4 +512,15 @@ function getOrCreateSlotFolder(personFolder, slotName) {
   const existing = personFolder.getFoldersByName(slotName);
   if (existing.hasNext()) return existing.next();
   return personFolder.createFolder(slotName);
+}
+
+/** Trashes a guest's slot subfolder (and everything inside it), if it exists.
+ *  Used when a document type no longer applies to the guest (e.g. they
+ *  switched Local Indian status) or ends up with no files left in it — so no
+ *  empty/orphaned folder is left behind in Drive. */
+function trashSlotFolder(personFolder, slotName) {
+  const existing = personFolder.getFoldersByName(slotName);
+  while (existing.hasNext()) {
+    try { existing.next().setTrashed(true); } catch (e) {}
+  }
 }

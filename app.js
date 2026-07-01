@@ -328,9 +328,9 @@ function renderGuestForms(guests, pickupRequired) {
     // Up to MAX_FILES_PER_SLOT combined (existing + new) per slot.
     // objectUrls are created once on file selection and revoked explicitly on removal or form teardown.
     card._docSlots = {
-      'Passport':    { existingFiles: saved.passport    || [], newFiles: [] },
-      'Visa / OCI':  { existingFiles: saved.visaOci     || [], newFiles: [] },
-      'Aadhar Card': { existingFiles: saved.aadharCard  || [], newFiles: [] }
+      'Passport':    { existingFiles: (saved.passport    || []).slice(), newFiles: [] },
+      'Visa / OCI':  { existingFiles: (saved.visaOci     || []).slice(), newFiles: [] },
+      'Aadhar Card': { existingFiles: (saved.aadharCard  || []).slice(), newFiles: [] }
     };
 
     renderDocSlots(card);
@@ -342,6 +342,13 @@ function renderGuestForms(guests, pickupRequired) {
       el.addEventListener('change', () => el.classList.remove('field-error'));
     });
     // Doc slots: clear on any upload/remove (re-render handles it via renderDocSlots)
+  });
+
+  container.querySelectorAll('.overseas-checkbox, .domestic-checkbox').forEach(checkbox => {
+    checkbox.addEventListener('change', () => {
+      const row = checkbox.closest('.travel-toggle-row');
+      if (row) row.classList.remove('field-error');
+    });
   });
 
   container.querySelectorAll('.overseas-checkbox').forEach(checkbox => {
@@ -413,7 +420,25 @@ function renderGuestForms(guests, pickupRequired) {
 
   container.querySelectorAll('.local-indian-checkbox').forEach(checkbox => {
     checkbox.addEventListener('change', () => {
-      renderDocSlots(checkbox.closest('.guest-card'));
+      const card = checkbox.closest('.guest-card');
+      // Slots that no longer apply for the newly-selected identity type must be
+      // cleared out entirely (not just hidden) — otherwise their existingFiles
+      // stay in card._docSlots and get resubmitted as "kept" on submit, which
+      // stops the backend from ever trashing the old Drive file / clearing the
+      // sheet link for the slot the guest no longer needs.
+      const slotsToClear = checkbox.checked
+        ? ['Passport', 'Visa / OCI']   // now Local Indian -> foreigner slots no longer apply
+        : ['Aadhar Card'];             // now foreigner -> local slot no longer applies
+
+      slotsToClear.forEach(slotName => {
+        const state = card._docSlots[slotName];
+        if (!state) return;
+        state.newFiles.forEach(f => { if (f.objectUrl) URL.revokeObjectURL(f.objectUrl); });
+        state.existingFiles = [];
+        state.newFiles = [];
+      });
+
+      renderDocSlots(card);
     });
   });
 }
@@ -821,6 +846,13 @@ document.getElementById('rsvp-form').addEventListener('submit', async (e) => {
     if (!fullName) {
       const el = card.querySelector('.full-name');
       setError('form-error', `Please enter the full name for ${name}.`);
+      flagField(el);
+      return;
+    }
+
+    if (pickupRequired && !overseasChecked && !domesticChecked) {
+      const el = card.querySelector('.travel-toggle-row');
+      setError('form-error', `Please indicate whether ${name} is travelling from overseas or domestically.`);
       flagField(el);
       return;
     }
