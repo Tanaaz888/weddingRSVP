@@ -20,18 +20,39 @@ function setError(elId, msg) {
  * Scroll an element into view and apply a glowing red error border.
  * Pass the focusable input itself, or a container (e.g. .phone-wrap, .airport-dropdown-wrap).
  *
- * NOTE: we deliberately do NOT use el.scrollIntoView({behavior:'smooth'}) here.
- * iOS Safari's implementation of smooth scrollIntoView is unreliable for
- * non-text-input elements (selects, checkboxes, wrapper divs like .phone-wrap
- * or .airport-dropdown-wrap) — it frequently no-ops on iPhone even though the
- * exact same code works fine on Chrome/Android. Computing the scroll position
- * manually and calling window.scrollTo() instead sidesteps that WebKit quirk.
+ * NOTE on the approach: neither el.scrollIntoView({behavior:'smooth'}) nor a
+ * plain window.scrollTo() call is reliable on iOS Safari for this — both can
+ * silently no-op there, especially for non-text-input elements (selects,
+ * checkboxes, wrapper divs). What IS reliable on iOS is focusing a form
+ * element: iOS itself uses focus as the trigger to bring a field into view
+ * (that's how it decides where to scroll when the keyboard opens), so we
+ * lean on that native behaviour first, then do a smooth "center it nicely"
+ * pass afterwards for a better look on all browsers.
  */
 function flagField(el) {
   if (!el) return;
   el.classList.add('field-error');
-  // Wait a frame so layout has settled (e.g. if this field just became
-  // visible/changed size) before measuring its position.
+
+  // Container elements (.phone-wrap, .airport-dropdown-wrap, .travel-toggle-row)
+  // aren't focusable themselves — find the actual input/select inside them.
+  const focusTarget = (el.matches && el.matches('input, select, textarea, button'))
+    ? el
+    : el.querySelector('input, select, textarea, button');
+
+  if (focusTarget) {
+    try {
+      // Let iOS do its native "scroll field into view" — do NOT use
+      // preventScroll here, since that native scroll is the reliable part.
+      focusTarget.focus();
+      // Focusing a <select>/<input> can pop the keyboard/picker, which we
+      // don't want mid-validation — blur it right after iOS has used the
+      // focus event to scroll, but before the user notices a picker.
+      setTimeout(() => focusTarget.blur(), 50);
+    } catch (e) { /* ignore focus errors on unusual elements */ }
+  }
+
+  // Follow up with a smooth, centered scroll (covers the case where there
+  // was no focusable child, and improves the final resting position).
   requestAnimationFrame(() => {
     const rect = el.getBoundingClientRect();
     const targetY = window.scrollY + rect.top - (window.innerHeight / 2) + (rect.height / 2);
