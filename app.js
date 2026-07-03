@@ -39,14 +39,20 @@ function flagField(el) {
     ? el
     : el.querySelector('input, select, textarea, button');
 
-  if (focusTarget) {
+  // IMPORTANT: skip <select> elements here. Focusing a <select> on iOS opens
+  // the native picker wheel; blurring it afterward to close that picker makes
+  // iOS snap the page's scroll position back to where it was before the
+  // picker opened — which silently cancels the scroll we just did. Text
+  // inputs/checkboxes don't have this side effect, so the trick is safe for
+  // them; for selects we skip straight to the manual scroll below instead.
+  if (focusTarget && focusTarget.tagName !== 'SELECT') {
     try {
       // Let iOS do its native "scroll field into view" — do NOT use
       // preventScroll here, since that native scroll is the reliable part.
       focusTarget.focus();
-      // Focusing a <select>/<input> can pop the keyboard/picker, which we
-      // don't want mid-validation — blur it right after iOS has used the
-      // focus event to scroll, but before the user notices a picker.
+      // Focusing an <input> can pop the keyboard mid-validation, which we
+      // don't want — blur it right after iOS has used the focus event to
+      // scroll, but before the user notices anything.
       setTimeout(() => focusTarget.blur(), 50);
     } catch (e) { /* ignore focus errors on unusual elements */ }
   }
