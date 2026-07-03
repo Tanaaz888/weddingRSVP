@@ -19,11 +19,24 @@ function setError(elId, msg) {
 /**
  * Scroll an element into view and apply a glowing red error border.
  * Pass the focusable input itself, or a container (e.g. .phone-wrap, .airport-dropdown-wrap).
+ *
+ * NOTE: we deliberately do NOT use el.scrollIntoView({behavior:'smooth'}) here.
+ * iOS Safari's implementation of smooth scrollIntoView is unreliable for
+ * non-text-input elements (selects, checkboxes, wrapper divs like .phone-wrap
+ * or .airport-dropdown-wrap) — it frequently no-ops on iPhone even though the
+ * exact same code works fine on Chrome/Android. Computing the scroll position
+ * manually and calling window.scrollTo() instead sidesteps that WebKit quirk.
  */
 function flagField(el) {
   if (!el) return;
   el.classList.add('field-error');
-  el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  // Wait a frame so layout has settled (e.g. if this field just became
+  // visible/changed size) before measuring its position.
+  requestAnimationFrame(() => {
+    const rect = el.getBoundingClientRect();
+    const targetY = window.scrollY + rect.top - (window.innerHeight / 2) + (rect.height / 2);
+    window.scrollTo({ top: Math.max(targetY, 0), behavior: 'smooth' });
+  });
 }
 
 /** Remove all glowing error borders from the form before re-validating. */
