@@ -785,6 +785,14 @@ function renderDocSlots(card) {
 }
 
 // ---------- Screen 2: Submit ----------
+// Belt-and-suspenders: force novalidate in case the attribute is ever lost
+// (e.g. dynamic re-render). Native HTML5 validation on <select required> is
+// what silently blocks submission on iOS Safari — it intercepts the submit
+// event before this listener runs, and unlike desktop Chrome it shows no
+// bubble and does not scroll. Our own flagField/scroll logic below is the
+// single source of truth for validation instead.
+document.getElementById('rsvp-form').setAttribute('novalidate', 'novalidate');
+
 document.getElementById('rsvp-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   setError('form-error', '');
