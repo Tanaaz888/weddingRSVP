@@ -804,13 +804,34 @@ document.getElementById('rsvp-form').addEventListener('submit', async (e) => {
   const guestCards = document.querySelectorAll('.guest-card');
   const guestsPayload = [];
 
+  // Validation below runs in the same top-down order fields appear in the
+  // card: full name -> phone -> attendance -> travel details -> documents.
   for (const card of guestCards) {
     const name = card.dataset.guestName;
     const pickupRequired = card.dataset.pickupRequired === 'true';
     const rawFullName = card.querySelector('.full-name').value.trim();
     const fullName = toTitleCase(rawFullName); // capitalise first letter of each word
 
-    // Phone: validate via intl-tel-input if available, else fall back to raw value
+    // These fields only exist in the DOM at all when this party's "Pickup"
+    // flag is set — otherwise there's nothing to read or validate, and the
+    // payload sends "No"/blank for all of them.
+    const overseasChecked = pickupRequired ? card.querySelector('.overseas-checkbox').checked : false;
+    const domesticChecked = pickupRequired ? card.querySelector('.domestic-checkbox').checked : false;
+    const arrivalFlightNumber = pickupRequired ? card.querySelector('.arrival-flight-number').value.trim() : '';
+    const arrivalDate = pickupRequired ? card.querySelector('.arrival-date').value : '';
+    const arrivalTime = pickupRequired ? card.querySelector('.arrival-time').value : '';
+    const arrivalAirportInput = pickupRequired ? card.querySelector('.arrival-airport') : null;
+    const arrivalAirport = arrivalAirportInput ? arrivalAirportInput.value.trim() : '';
+
+    // ---------- 1. Full name ----------
+    if (!fullName) {
+      const el = card.querySelector('.full-name');
+      setError('form-error', `Please enter the full name for ${name}.`);
+      flagField(el);
+      return;
+    }
+
+    // ---------- 2. Phone: validate via intl-tel-input if available, else fall back to raw value ----------
     let phone = '';
     const iti = card._iti;
     if (iti) {
@@ -880,24 +901,20 @@ document.getElementById('rsvp-form').addEventListener('submit', async (e) => {
       phone = card.querySelector('.phone-input').value.trim();
     }
 
-    // These fields only exist in the DOM at all when this party's "Pickup"
-    // flag is set — otherwise there's nothing to read or validate, and the
-    // payload sends "No"/blank for all of them.
-    const overseasChecked = pickupRequired ? card.querySelector('.overseas-checkbox').checked : false;
-    const domesticChecked = pickupRequired ? card.querySelector('.domestic-checkbox').checked : false;
-    const arrivalFlightNumber = pickupRequired ? card.querySelector('.arrival-flight-number').value.trim() : '';
-    const arrivalDate = pickupRequired ? card.querySelector('.arrival-date').value : '';
-    const arrivalTime = pickupRequired ? card.querySelector('.arrival-time').value : '';
-    const arrivalAirportInput = pickupRequired ? card.querySelector('.arrival-airport') : null;
-    const arrivalAirport = arrivalAirportInput ? arrivalAirportInput.value.trim() : '';
-
-    if (!fullName) {
-      const el = card.querySelector('.full-name');
-      setError('form-error', `Please enter the full name for ${name}.`);
-      flagField(el);
+    // ---------- 3. Event attendance ----------
+    const attendance = {};
+    let firstBadAttendance = null;
+    card.querySelectorAll('.attendance-select').forEach(sel => {
+      if (!sel.value && !firstBadAttendance) firstBadAttendance = sel;
+      attendance[sel.dataset.event] = sel.value;
+    });
+    if (firstBadAttendance) {
+      setError('form-error', `Please confirm attendance for every event for ${name}.`);
+      flagField(firstBadAttendance);
       return;
     }
 
+    // ---------- 4. Travel details ----------
     if (pickupRequired && !overseasChecked && !domesticChecked) {
       const el = card.querySelector('.travel-toggle-row');
       setError('form-error', `Please indicate whether ${name} is travelling from overseas or domestically.`);
@@ -932,18 +949,7 @@ document.getElementById('rsvp-form').addEventListener('submit', async (e) => {
       }
     }
 
-    const attendance = {};
-    let firstBadAttendance = null;
-    card.querySelectorAll('.attendance-select').forEach(sel => {
-      if (!sel.value && !firstBadAttendance) firstBadAttendance = sel;
-      attendance[sel.dataset.event] = sel.value;
-    });
-    if (firstBadAttendance) {
-      setError('form-error', `Please confirm attendance for every event for ${name}.`);
-      flagField(firstBadAttendance);
-      return;
-    }
-
+    // ---------- 5. Documents ----------
     const isLocal = card.querySelector('.local-indian-checkbox').checked;
     const slots = card._docSlots;
 
