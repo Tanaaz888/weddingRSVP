@@ -329,7 +329,8 @@ function renderGuestForms(guests, pickupRequired) {
         <label>Arrival travel date<span class="req">*</span></label>
         <input type="date" class="arrival-date" value="${escapeHtml(saved.arrivalDate || '')}" ${isOverseasSaved ? '' : 'disabled'} />
 
-        <label>Arrival travel time<span class="req">*</span></label>
+        <label>Arrival travel time (IST)<span class="req">*</span></label>
+        <p class="helper-text">Please enter your arrival time in <strong>Indian Standard Time (IST)</strong>. IST is UTC+5:30, i.e. 5 hr 30 min ahead of UTC.</p>
         <input type="time" class="arrival-time" value="${escapeHtml(saved.arrivalTime || '')}" ${isOverseasSaved ? '' : 'disabled'} />
 
         <label>Arrival airport<span class="req">*</span></label>
@@ -342,10 +343,22 @@ function renderGuestForms(guests, pickupRequired) {
 
     ` : '';
 
+    // Attending checkbox: ticked if saved as Yes. Rows saved before this
+    // checkbox existed (no value, but details already filled in) count as attending.
+    const savedAttending = String(saved.attendingWedding || '').toLowerCase();
+    const isAttendingSaved = savedAttending === 'yes' || (!savedAttending && !!saved.fullName);
+
     card.innerHTML = `
       <div class="guest-name-tag">Guest ${idx + 1}</div>
       <h2>${escapeHtml(guest.name)}</h2>
 
+      <label class="checkbox-label attending-toggle">
+        <input type="checkbox" class="attending-checkbox" ${isAttendingSaved ? 'checked' : ''} />
+        I can attend the wedding
+      </label>
+      <p class="helper-text attending-helper">Tick this box if ${escapeHtml(guest.name)} can attend. Leave it unticked if they can't make it at all.</p>
+
+      <div class="guest-details" style="${isAttendingSaved ? '' : 'display:none;'}">
       <label>Full name<span class="req">*</span></label>
       <p class="helper-text">Full name as per passport</p>
       <input type="text" class="full-name" required placeholder="Exact name as on your travel document" value="${escapeHtml(saved.fullName || '')}" />
@@ -384,6 +397,7 @@ function renderGuestForms(guests, pickupRequired) {
           <div class="doc-slot-control"></div>
         </div>
       </div>
+      </div><!-- /.guest-details -->
     `;
     container.appendChild(card);
 
@@ -405,6 +419,14 @@ function renderGuestForms(guests, pickupRequired) {
       el.addEventListener('change', () => el.classList.remove('field-error'));
     });
     // Doc slots: clear on any upload/remove (re-render handles it via renderDocSlots)
+
+    // Show/hide everything else based on the attending checkbox
+    const attendingBox = card.querySelector('.attending-checkbox');
+    const detailsWrap = card.querySelector('.guest-details');
+    attendingBox.addEventListener('change', () => {
+      detailsWrap.style.display = attendingBox.checked ? '' : 'none';
+      card.querySelectorAll('.field-error').forEach(el => el.classList.remove('field-error'));
+    });
   });
 
   container.querySelectorAll('.overseas-checkbox, .domestic-checkbox').forEach(checkbox => {
@@ -574,21 +596,30 @@ async function initCardWidgets(card, saved) {
       card._phoneMaxDigits = computeMaxDigits();
     });
 
-    // Block non-digits and enforce max length BEFORE the character is inserted,
-    // so formatCurrentValue on 'input' only ever sees clean numeric input.
-    phoneInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Backspace' || e.key === 'Delete' || e.key === 'Tab' ||
-          e.key === 'Escape' || e.key.startsWith('Arrow') ||
-          e.key === 'Home' || e.key === 'End' || e.ctrlKey || e.metaKey) return;
-      if (!/^\d$/.test(e.key)) { e.preventDefault(); return; }
+    // Block non-digits and enforce max length BEFORE the text is inserted.
+    // Uses beforeinput (not keydown) so that:
+    //  - typing over highlighted text works: the selected digits are replaced,
+    //    so they must not count towards the length limit;
+    //  - mobile soft keyboards (which send key="Unidentified" on keydown) work.
+    phoneInput.addEventListener('beforeinput', (e) => {
+      if (!e.inputType || !e.inputType.startsWith('insert') || e.data == null) return;
+      if (/\D/.test(e.data)) { e.preventDefault(); return; }
       const maxDigits = card._phoneMaxDigits;
-      if (maxDigits && phoneInput.value.replace(/\D/g, '').length >= maxDigits) {
-        e.preventDefault(); return;
-      }
+      if (!maxDigits) return;
+      const v = phoneInput.value;
+      const start = phoneInput.selectionStart ?? v.length;
+      const end = phoneInput.selectionEnd ?? v.length;
+      const kept = (v.slice(0, start) + v.slice(end)).replace(/\D/g, '').length;
+      if (kept + e.data.length > maxDigits) e.preventDefault();
     });
 
     // Apply national formatting after each keystroke; clear error highlights
     phoneInput.addEventListener('input', () => {
+      // Pasted text bypasses beforeinput's per-character check: clean it up here.
+      const digits = phoneInput.value.replace(/\D/g, '');
+      const max = card._phoneMaxDigits;
+      const trimmed = max ? digits.slice(0, max) : digits;
+      if (trimmed !== digits || /[^\d\s\-()]/.test(phoneInput.value)) phoneInput.value = trimmed;
       formatCurrentValue();
       card.querySelector('.phone-wrap')?.classList.remove('field-error');
       const phoneError = card.querySelector('.phone-error');
@@ -615,6 +646,9 @@ async function initCardWidgets(card, saved) {
 
   searchInput.addEventListener('input', () => {
     clearTimeout(debounceTimer);
+    // Any edit (including typing over a highlighted selection) invalidates the
+    // previously chosen airport; the guest must pick one from the list again.
+    hiddenInput.value = '';
     const query = searchInput.value.trim().toLowerCase();
     if (!query) {
       dropdownList.style.display = 'none';
@@ -838,6 +872,13 @@ document.getElementById('rsvp-form').addEventListener('submit', async (e) => {
   // card: full name -> phone -> attendance -> travel details -> documents.
   for (const card of guestCards) {
     const name = card.dataset.guestName;
+
+    // Not attending at all: nothing else to validate or send.
+    if (!card.querySelector('.attending-checkbox').checked) {
+      guestsPayload.push({ name, attendingWedding: 'No' });
+      continue;
+    }
+
     const pickupRequired = card.dataset.pickupRequired === 'true';
     const rawFullName = card.querySelector('.full-name').value.trim();
     const fullName = toTitleCase(rawFullName); // capitalise first letter of each word
@@ -1005,7 +1046,7 @@ document.getElementById('rsvp-form').addEventListener('submit', async (e) => {
     }
 
     guestsPayload.push({
-      name, fullName, phone,
+      name, attendingWedding: 'Yes', fullName, phone,
       localIndian: isLocal ? 'Yes' : 'No',
       travellingOverseas: overseasChecked ? 'Yes' : 'No',
       travellingDomestically: domesticChecked ? 'Yes' : 'No',
@@ -1020,6 +1061,7 @@ document.getElementById('rsvp-form').addEventListener('submit', async (e) => {
 
   try {
     for (const guest of guestsPayload) {
+      if (!guest.docSlots) continue; // not attending: nothing to upload
       const encodedSlots = {};
       for (const [slotName, slot] of Object.entries(guest.docSlots)) {
         encodedSlots[slotName] = { existingIds: slot.existingIds, newFiles: [] };

@@ -670,3 +670,13 @@ select {
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
 }
+
+/* Attending-the-wedding checkbox (top of each guest card) */
+.attending-toggle {
+  font-size: 15px;
+  font-weight: 500;
+  margin: 6px 0 4px;
+}
+.attending-toggle input[type="checkbox"] { width: 20px; height: 20px; }
+.attending-helper { margin: 2px 0 6px; }
+

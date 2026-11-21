@@ -335,6 +335,7 @@ function buildSavedData(rowData, headers, invitedEvents) {
   };
 
   return {
+    attendingWedding: get('Attending Wedding'),
     fullName: get('Full Name'),
     phone: get('Phone Number'),
     localIndian: get('Local Indian'),
@@ -396,7 +397,7 @@ function submitRsvp(payload) {
   EVENT_COLUMNS.forEach(eventName => {
     ensureColumn(sheet, headers, `${eventName} - Attending`);
   });
-  ['Local Indian', 'Passport', 'Visa / OCI', 'Aadhar Card', 'Travelling Domestically'].forEach(colName => {
+  ['Local Indian', 'Passport', 'Visa / OCI', 'Aadhar Card', 'Travelling Domestically', 'Attending Wedding'].forEach(colName => {
     ensureColumn(sheet, headers, colName);
   });
 
@@ -417,6 +418,30 @@ function submitRsvp(payload) {
     if (!match) return;
     const rowNum = match.rowNum;
 
+    // "Can this person attend the wedding at all?" Anything other than an
+    // explicit Yes is treated as No: the row is marked as not attending, every
+    // invited event is set to No, and all other answers (and any uploaded ID
+    // documents) are cleared, so nothing personal is kept for someone who isn't coming.
+    if (String(guest.attendingWedding || '').trim().toLowerCase() !== 'yes') {
+      writeCell(sheet, headers, rowNum, 'Attending Wedding', 'No');
+      ['Full Name', 'Phone Number', 'Local Indian', 'Travelling from Overseas', 'Travelling Domestically',
+       'Arrival Flight Number', 'Arrival Travel Date', 'Arrival Travel Time', 'Arrival Airport'
+      ].forEach(colName => writeCell(sheet, headers, rowNum, colName, ''));
+      invitedEventNames.forEach(eventName => writeCell(sheet, headers, rowNum, `${eventName} - Attending`, 'No'));
+
+      const declinerFolder = getOrCreatePersonFolder(folder, String(match.rowData[colIndex(headers, 'Name')]).trim());
+      ['Passport', 'Visa / OCI', 'Aadhar Card'].forEach(slotName => {
+        getLinksFromCell(getPreviousSlotUrl(match.rowData, headers, slotName)).forEach(url => {
+          const id = extractDriveFileId(url);
+          if (id) { try { DriveApp.getFileById(id).setTrashed(true); } catch (e) {} }
+        });
+        trashSlotFolder(declinerFolder, slotName);
+        writeCell(sheet, headers, rowNum, slotName, '');
+      });
+      return;
+    }
+    writeCell(sheet, headers, rowNum, 'Attending Wedding', 'Yes');
+
     writeCell(sheet, headers, rowNum, 'Full Name', cleanText(guest.fullName));
     writeCell(sheet, headers, rowNum, 'Phone Number', cleanText(guest.phone, 40));
     writeCell(sheet, headers, rowNum, 'Local Indian', yesNo(guest.localIndian));
@@ -430,6 +455,7 @@ function submitRsvp(payload) {
     writeCell(sheet, headers, rowNum, 'Travelling Domestically', pickupRequired ? (isDomestic ? 'Yes' : 'No') : '');
     writeCell(sheet, headers, rowNum, 'Arrival Flight Number', isOverseas ? cleanText(guest.arrivalFlightNumber, 20) : '');
     writeCell(sheet, headers, rowNum, 'Arrival Travel Date', isOverseas ? cleanText(guest.arrivalDate, 20) : '');
+    // Time is entered and stored in IST (the form says so explicitly).
     writeCell(sheet, headers, rowNum, 'Arrival Travel Time', isOverseas ? cleanText(guest.arrivalTime, 20) : '');
     writeCell(sheet, headers, rowNum, 'Arrival Airport', isOverseas ? cleanText(guest.arrivalAirport) : '');
 

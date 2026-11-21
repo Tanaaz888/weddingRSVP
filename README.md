@@ -27,8 +27,10 @@ One tab, one row per person. Header row exactly like this (order doesn't matter,
 
 **Writable — leave these columns blank, the form fills them in:**
 
-`Full Name | Phone Number | Travelling from Overseas | Arrival Flight Number | Arrival Travel Date | Arrival Travel Time | Arrival Airport | Identification 1 | Identification 2 | Identification 3`
+`Attending Wedding | Full Name | Phone Number | Travelling from Overseas | Arrival Flight Number | Arrival Travel Date | Arrival Travel Time | Arrival Airport | Identification 1 | Identification 2 | Identification 3`
 
+- **Attending Wedding**: Yes/No, set by the "I can attend the wedding" tickbox at the top of each person's block. If left unticked, the rest of that person's fields are hidden; on submit they are recorded as `No`, every invited event is set to `No`, and their other answers and uploaded ID files are cleared.
+- **Arrival Travel Time**: entered and stored in **IST**; the form shows a notice reminding guests to enter it in IST (UTC+5:30, 5 h 30 min ahead of UTC).
 - **Full Name**: labeled on the form as "Full name", with a helper line underneath saying "Full name as per passport".
 - **Travelling from overseas**: Yes/No, set by a tickbox on the form — but the tickbox and the four "Arrival..." fields only show up at all if the party's **Pickup** column is ticked. If Pickup isn't ticked, this whole section is skipped on the form and these columns stay blank. If Pickup is ticked, the four "Arrival..." columns are still only filled in when overseas is ticked Yes — otherwise they're left blank and the form greys those fields out (disabled, not required).
 
