@@ -100,9 +100,41 @@ const API_URL = "https://script.google.com/macros/s/AKfycb.../exec";
 ## 5. Publish on GitHub Pages
 
 1. New GitHub repo, e.g. `rsvp-hanseng-tanaaz`.
-2. Push the contents of `site/` (`index.html`, `style.css`, `app.js`, `config.js`, plus the `vendor/` and `data/` folders) to the repo **root**. Everything the page needs is served from your own repo — the only external request is Google Fonts.
+2. Push the contents of `site/` (`index.html`, `style.css`, `app.js`, `background.js`, `config.js`, plus the `vendor/`, `data/` and `assets/` folders, including `assets/corners/` and `assets/sides/`) to the repo **root**. Everything the page needs is served from your own repo — the only external request is Google Fonts.
 3. Repo → **Settings → Pages** → Source: branch `main`, folder `/ (root)`.
 4. Live at `https://<your-username>.github.io/rsvp-hanseng-tanaaz/`.
+
+## 6. Background: couple photo and flowers
+
+The page has a decorative, scrolling background (purely visual; it never blocks clicks or typing):
+
+- **Couple photo**: fixed behind everything at full strength, always fills the screen at any size or orientation, and drifts very slowly as the page scrolls.
+- **Corner flowers**: one in each corner of the page, fixed to the page so they scroll with it.
+- **Side flowers**: flowers stacked down both edges, fixed to the page like the corners, so the middle of long pages has flowers too. These only show on screens wider than ~900px (phones show corner flowers only), and they only fill the space between the top and bottom corner flowers, so the two never overlap.
+- **Centre window**: the white card that holds the text is always 60% of the screen width (change `width: 60vw` in the `.card` rule of `style.css`), and its text scales with the screen (`--fs` at the top of `style.css`), and is slightly see-through, so the photo and flowers show faintly behind it. Its see-through amount is adjustable (below).
+- Guests who have "reduce motion" turned on in their device settings get the same background without the movement.
+
+**Adding your photo:** save it as `assets/couple.jpg` (landscape or portrait both work; ~1600px on the long side and under ~400 KB keeps the page fast). Until that file exists, no photo is shown.
+
+**Tuning** (the first block under "Dynamic background" at the end of `style.css`):
+
+| Setting | What it does |
+|---|---|
+| `--card-opacity` | The centre window: `1` = solid, `0` = fully see-through. Default `0.88`. Lower it to show more of the photo, raise it for easier reading. |
+| `--card-blur` | How blurred the picture is behind the window. Default `4px`; `0px` = sharp. A little blur keeps text readable at low opacity. |
+| `--couple-photo-position` | Photo position as `horizontal vertical`, e.g. `50% 30%` (default) or `20% 15%`. Horizontal: `0%` = left edge of the photo, `100%` = right edge. Vertical: `0%` = top, `100%` = bottom. Keywords like `left top` also work. |
+| `--couple-photo` | Change the file name if your photo isn't `couple.jpg` (e.g. a `.png` or `.webp`). |
+
+The photo always fills the screen, so it can only slide in the direction it is being cropped: **sideways** when the photo is wider than the screen's shape (e.g. a landscape photo on a phone), **up/down** when it is taller (e.g. a portrait photo on a laptop). Because phones and laptops are shaped differently, check both after changing it.
+
+Scroll speeds are at the top of `background.js` (`PHOTO_SPEED`, `CORNER_SPEED`); smaller numbers move less.
+
+**Flower artwork** lives in `assets/` (all SVGs are pre-cropped so they hug the screen edge):
+
+- `assets/corners/`: `top_left_corner.svg`, `top_right_corner.svg`, `bottom_left_corner.svg`, `bottom_right_corner.svg`. Each corner has its own file (nothing is mirrored). Keep these file names.
+- `assets/sides/`: any number of SVGs. A file with **"left"** in its name goes down the left edge; one with **"right"** goes down the right edge. They are stacked in order, and `background.js` adds or removes them as the screen or page height changes.
+
+**Adding, removing or renaming a side SVG:** change the file in `assets/sides/`, then update the `SIDE_FILES` list at the top of `background.js` to match (a website can't list a folder by itself). Spacing and the minimum screen width for side flowers (`SIDE_GAP_RATIO`, `SIDE_MIN_WIDTH`) are in the same place. Corner and side flowers scroll exactly with the page; `CORNER_SPEED` and `SIDE_SPEED` (both `0`) can make them trail behind it, but keep the two equal. No flower is ever wider than 20% of the screen width (`MAX_FLOWER_VW` in `background.js`). Every flower (corner or side) is drawn at the same scale, worked out from the corner's size on the screen, so a flower is the same size wherever it appears and everything grows and shrinks together. For this to work, each side SVG should have its own `width`/`height` (SVGs exported from the same tool as the corners do); if one doesn't, it is drawn at half the corner width (`SIDE_FALLBACK_WIDTH`). The side flowers are spread evenly down each edge together with the corner flowers (the gap from the corner to the first side flower equals the gaps between side flowers); `SIDE_GAP_RATIO` is the smallest gap allowed, as a fraction of the corner width. If you change `SIDE_MIN_WIDTH`, change the `900px` in the `.bg-side` media query in `style.css` too.
 
 ---
 

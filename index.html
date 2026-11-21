@@ -11,6 +11,18 @@
 </head>
 <body>
 
+  <!-- DECORATIVE BACKGROUND (purely visual; sits behind everything) -->
+  <div class="bg-photo" id="bg-photo" aria-hidden="true"></div>
+  <div class="bg-flowers" id="bg-flowers" aria-hidden="true">
+    <!-- Side flowers: filled in by background.js from the files in assets/sides/ -->
+    <div class="bg-side bg-side-left"  id="bg-side-left"><div class="bg-side-track" data-parallax="side"></div></div>
+    <div class="bg-side bg-side-right" id="bg-side-right"><div class="bg-side-track" data-parallax="side"></div></div>
+    <div class="bg-corner bg-corner-tl" data-parallax="top"><img src="assets/corners/top_left_corner.svg" alt="" /></div>
+    <div class="bg-corner bg-corner-tr" data-parallax="top"><img src="assets/corners/top_right_corner.svg" alt="" /></div>
+    <div class="bg-corner bg-corner-bl" data-parallax="bottom"><img src="assets/corners/bottom_left_corner.svg" alt="" /></div>
+    <div class="bg-corner bg-corner-br" data-parallax="bottom"><img src="assets/corners/bottom_right_corner.svg" alt="" /></div>
+  </div>
+
   <!-- SCREEN 1: WELCOME -->
   <section id="welcome-screen" class="screen active">
     <div class="card">
@@ -46,9 +58,9 @@
 
   <!-- SCREEN 3: FORM -->
   <section id="form-screen" class="screen form-screen">
-    <div class="card" style="max-width:720px;">
+    <div class="card">
       <p class="eyebrow">RSVP</p>
-      <h1 class="headline" style="font-size:32px;">Welcome, <span id="form-name"></span></h1>
+      <h1 class="headline" style="font-size:calc(var(--fs) * 2);">Welcome, <span id="form-name"></span></h1>
       <p class="subline">Please fill in the RSVP details for your party.</p>
 
       <div id="party-members-block" style="display:none;"></div>
@@ -88,5 +100,6 @@
 <script src="vendor/intl-tel-input/js/intlTelInputWithUtils.min.js"></script>
 <script src="config.js"></script>
 <script src="app.js"></script>
+<script src="background.js"></script>
 </body>
 </html>

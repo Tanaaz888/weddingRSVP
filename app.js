@@ -447,6 +447,8 @@ function renderGuestForms(guests, pickupRequired) {
     const detailsWrap = card.querySelector('.guest-details');
     attendingBox.addEventListener('change', () => {
       detailsWrap.style.display = attendingBox.checked ? '' : 'none';
+      // The phone field was hidden (zero width) if the card started unticked; re-measure the dial code now.
+      if (attendingBox.checked) refreshPhonePadding(card);
       card.querySelectorAll('.field-error').forEach(el => el.classList.remove('field-error'));
     });
   });
@@ -529,6 +531,18 @@ function renderGuestForms(guests, pickupRequired) {
   });
 }
 
+/**
+ * Re-measure the selected-country (flag + dial code) block and set the phone input's left padding to match,
+ * so the placeholder/number never overlaps the country code. Works even if the library measured too early.
+ */
+function refreshPhonePadding(card) {
+  const input = card && card.querySelector('.phone-input');
+  const sel = input && input.parentElement && input.parentElement.querySelector('.iti__selected-country');
+  if (!input || !sel) return;
+  const w = sel.offsetWidth;
+  if (w > 0) input.style.paddingLeft = (w + 10) + 'px';
+}
+
 /** Initialise intl-tel-input on the phone field and airport search on a guest card. */
 async function initCardWidgets(card, saved) {
   // ---- Phone: intl-tel-input ----
@@ -544,6 +558,11 @@ async function initCardWidgets(card, saved) {
       placeholderNumberType: 'MOBILE',
     });
     card._iti = iti;
+    // The library sizes the input's left padding once, at init, when the web font may not be loaded yet
+    // (or the field is hidden), so the dial code ends up overlapping the number/placeholder. Re-measure
+    // after fonts load.
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => refreshPhonePadding(card));
+    requestAnimationFrame(() => refreshPhonePadding(card));
 
     /**
      * Compute the max national digit count for the selected country.
@@ -595,6 +614,7 @@ async function initCardWidgets(card, saved) {
     card._phoneMaxDigits = computeMaxDigits();
 
     phoneInput.addEventListener('countrychange', () => {
+      refreshPhonePadding(card);
       phoneInput.value = '';
       card._phoneMaxDigits = computeMaxDigits();
     });

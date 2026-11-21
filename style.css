@@ -7,6 +7,10 @@
   --rose: #b9695a;
   --charcoal: #2b2825;
   --line: rgba(28, 57, 52, 0.18);
+
+  /* Text size that follows the screen width: 16px on phones and laptops (never smaller), growing to 24px on very
+     large screens. Every font size in the card is a multiple of this (e.g. calc(var(--fs) * 0.75) = 75% of it). */
+  --fs: clamp(16px, 0.5vw + 11px, 24px);
 }
 
 * { box-sizing: border-box; }
@@ -20,6 +24,7 @@ html, body {
 }
 
 body {
+  position: relative;
   background-image:
     radial-gradient(circle at 12% 8%, rgba(189, 150, 80, 0.10), transparent 40%),
     radial-gradient(circle at 88% 92%, rgba(28, 57, 52, 0.08), transparent 45%);
@@ -27,6 +32,8 @@ body {
 }
 
 .screen {
+  position: relative;
+  z-index: 1;
   display: none;
   min-height: 100vh;
   width: 100%;
@@ -38,12 +45,15 @@ body {
 .screen.active { display: flex; }
 
 .card {
-  width: 100%;
-  max-width: 620px;
-  background: #fffdf8;
+  width: 60vw; /* the card always takes about 60% of the viewport width, at any screen size */
+  max-width: none;
+  font-size: var(--fs);
+  background: rgba(255, 253, 248, var(--card-opacity, 0.88));
+  -webkit-backdrop-filter: blur(var(--card-blur, 0px));
+  backdrop-filter: blur(var(--card-blur, 0px));
   border: 1px solid var(--line);
   border-radius: 2px;
-  padding: 56px 48px;
+  padding: calc(var(--fs) * 3.5) calc(var(--fs) * 3);
   box-shadow: 0 24px 60px -28px rgba(28, 57, 52, 0.35);
   position: relative;
 }
@@ -58,7 +68,7 @@ body {
 
 .eyebrow {
   font-family: 'Inter', sans-serif;
-  font-size: 11px;
+  font-size: calc(var(--fs) * 0.6875);
   letter-spacing: 0.22em;
   text-transform: uppercase;
   color: var(--gold);
@@ -67,7 +77,7 @@ body {
 }
 
 h1.headline {
-  font-size: clamp(30px, 5vw, 44px);
+  font-size: clamp(26px, 4.6vw, 52px);
   font-weight: 500;
   line-height: 1.15;
   text-align: center;
@@ -83,11 +93,11 @@ h1.headline {
   margin: 18px auto 28px;
 }
 .knot .line { height: 1px; width: 48px; background: var(--gold); opacity: 0.6; }
-.knot .mark { font-size: 18px; color: var(--gold); }
+.knot .mark { font-size: calc(var(--fs) * 1.125); color: var(--gold); }
 
 .subline {
   font-family: 'Inter', sans-serif;
-  font-size: 15px;
+  font-size: calc(var(--fs) * 0.9375);
   color: var(--ink-soft);
   text-align: center;
   line-height: 1.6;
@@ -98,7 +108,7 @@ h1.headline {
 
 .ps-note {
   font-family: 'Inter', sans-serif;
-  font-size: 12px;
+  font-size: calc(var(--fs) * 0.75);
   line-height: 1.6;
   color: var(--ink-soft);
   text-align: center;
@@ -110,7 +120,7 @@ h1.headline {
 input[type="text"], input[type="datetime-local"] {
   width: 100%;
   font-family: 'Inter', sans-serif;
-  font-size: 16px;
+  font-size: calc(var(--fs) * 1);
   padding: 13px 16px;
   border: 1px solid var(--line);
   border-radius: 1px;
@@ -136,7 +146,7 @@ input[type="text"]:focus, input[type="datetime-local"]:focus {
 
 button {
   font-family: 'Inter', sans-serif;
-  font-size: 13px;
+  font-size: calc(var(--fs) * 0.8125);
   letter-spacing: 0.08em;
   text-transform: uppercase;
   padding: 14px 32px;
@@ -160,7 +170,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .error-text {
   font-family: 'Inter', sans-serif;
   color: var(--rose);
-  font-size: 14px;
+  font-size: calc(var(--fs) * 0.875);
   text-align: center;
   margin-top: 4px;
 }
@@ -172,7 +182,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 }
 .events-block h3, .form-screen h3 {
   font-family: 'Inter', sans-serif;
-  font-size: 12px;
+  font-size: calc(var(--fs) * 0.75);
   letter-spacing: 0.16em;
   text-transform: uppercase;
   color: var(--ink-soft);
@@ -187,30 +197,30 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   font-family: 'Inter', sans-serif;
 }
 .event-row:last-child { border-bottom: none; }
-.event-row .ename { font-weight: 600; color: var(--ink); font-size: 15px; }
-.event-row .edate { font-size: 13px; color: var(--ink-soft); }
+.event-row .ename { font-weight: 600; color: var(--ink); font-size: calc(var(--fs) * 0.9375); }
+.event-row .edate { font-size: calc(var(--fs) * 0.8125); color: var(--ink-soft); }
 
 /* ---- form screen ---- */
-.form-screen .card { max-width: 720px; text-align: left; }
+.form-screen .card { text-align: left; }
 .form-screen .knot, .form-screen .subline { text-align: center; }
 
 .guest-card {
   border: 1px solid var(--line);
   padding: 28px;
   margin-bottom: 28px;
-  background: #fffefb;
+  background: transparent;
   position: relative;
 }
 .guest-card .guest-name-tag {
   font-family: 'Inter', sans-serif;
-  font-size: 11px;
+  font-size: calc(var(--fs) * 0.6875);
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--gold);
   margin-bottom: 4px;
 }
 .guest-card h2 {
-  font-size: 26px;
+  font-size: calc(var(--fs) * 1.625);
   color: var(--ink);
   margin: 0 0 22px;
   font-weight: 500;
@@ -219,7 +229,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 label {
   display: block;
   font-family: 'Inter', sans-serif;
-  font-size: 13px;
+  font-size: calc(var(--fs) * 0.8125);
   color: var(--ink-soft);
   margin: 18px 0 7px;
 }
@@ -228,7 +238,7 @@ label .req { color: var(--rose); margin-left: 3px; }
 select {
   width: 100%;
   font-family: 'Inter', sans-serif;
-  font-size: 16px;
+  font-size: calc(var(--fs) * 1);
   padding: 12px 14px;
   border: 1px solid var(--line);
   background: #fff;
@@ -246,23 +256,23 @@ select {
 .attendance-row:first-of-type { border-top: 1px solid var(--line); }
 .attendance-row .ename {
   font-family: 'Inter', sans-serif;
-  font-size: 14px;
+  font-size: calc(var(--fs) * 0.875);
   color: var(--charcoal);
 }
 .attendance-row .edate {
   font-family: 'Inter', sans-serif;
-  font-size: 12px;
+  font-size: calc(var(--fs) * 0.75);
   color: var(--ink-soft);
   display: block;
 }
-.attendance-row select { width: 130px; flex-shrink: 0; }
+.attendance-row select { width: auto; min-width: 170px; flex-shrink: 0; }
 
 .checkbox-label {
   display: flex;
   align-items: center;
   gap: 10px;
   font-family: 'Inter', sans-serif;
-  font-size: 14px;
+  font-size: calc(var(--fs) * 0.875);
   color: var(--ink);
   margin: 18px 0 4px;
   cursor: pointer;
@@ -285,7 +295,7 @@ select {
 
 .helper-text {
   font-family: 'Inter', sans-serif;
-  font-size: 12px;
+  font-size: calc(var(--fs) * 0.75);
   color: var(--ink-soft);
   margin: -2px 0 7px;
 }
@@ -317,7 +327,7 @@ select {
   background: transparent;
   color: var(--ink);
   border: 1px solid var(--ink);
-  font-size: 12px;
+  font-size: calc(var(--fs) * 0.75);
   padding: 10px 20px;
 }
 .add-files-btn:hover { background: rgba(28,57,52,0.06); }
@@ -336,7 +346,7 @@ select {
   border: 1px solid var(--line);
   background: rgba(28,57,52,0.03);
   font-family: 'Inter', sans-serif;
-  font-size: 13px;
+  font-size: calc(var(--fs) * 0.8125);
 }
 .existing-file-icon { flex-shrink: 0; }
 .existing-file-name {
@@ -352,7 +362,7 @@ select {
   border: 1px solid var(--line);
   background: #fff;
   color: var(--rose);
-  font-size: 11px;
+  font-size: calc(var(--fs) * 0.6875);
   line-height: 1;
   padding: 0;
   display: flex;
@@ -389,14 +399,14 @@ select {
   object-fit: cover;
 }
 .file-preview-thumb-pdf {
-  font-size: 14px;
+  font-size: calc(var(--fs) * 0.875);
   font-weight: 600;
   letter-spacing: 0.05em;
   color: var(--ink-soft);
   background: rgba(28,57,52,0.05);
 }
 .file-preview-name {
-  font-size: 12px;
+  font-size: calc(var(--fs) * 0.75);
   color: var(--ink-soft);
   margin-top: 6px;
   white-space: normal;
@@ -415,7 +425,7 @@ select {
   border: 1px solid var(--line);
   background: #fff;
   color: var(--rose);
-  font-size: 11px;
+  font-size: calc(var(--fs) * 0.6875);
   line-height: 1;
   padding: 0;
   display: flex;
@@ -448,7 +458,7 @@ select {
 /* Dial code text: match Inter font and card colour */
 .phone-wrap .iti__selected-dial-code {
   font-family: 'Inter', sans-serif;
-  font-size: 15px;
+  font-size: calc(var(--fs) * 0.9375);
   font-weight: 500;
   color: var(--charcoal);
   letter-spacing: 0;
@@ -463,7 +473,7 @@ select {
 /* Country dropdown list */
 .phone-wrap .iti__dropdown-content {
   font-family: 'Inter', sans-serif;
-  font-size: 14px;
+  font-size: calc(var(--fs) * 0.875);
   border: 1px solid var(--line);
   box-shadow: 0 8px 24px -8px rgba(28,57,52,0.18);
   border-radius: 0;
@@ -474,14 +484,14 @@ select {
 }
 .phone-wrap .iti__search-input {
   font-family: 'Inter', sans-serif;
-  font-size: 14px;
+  font-size: calc(var(--fs) * 0.875);
   border-bottom: 1px solid var(--line);
 }
 
 .phone-wrap input[type="tel"] {
   width: 100%;
   font-family: 'Inter', sans-serif;
-  font-size: 16px;
+  font-size: calc(var(--fs) * 1);
   padding: 13px 16px;
   border: 1px solid var(--line);
   border-radius: 1px;
@@ -491,6 +501,8 @@ select {
   transition: border-color 0.2s;
 }
 .phone-wrap input[type="tel"]:focus { border-color: var(--gold); }
+/* Keep the dial-code selector from collapsing so the input's left padding always has room for it */
+.phone-wrap .iti__selected-country { white-space: nowrap; }
 
 /* ---- Airport searchable dropdown ---- */
 .airport-dropdown-wrap { position: relative; }
@@ -498,7 +510,7 @@ select {
 .airport-search {
   width: 100%;
   font-family: 'Inter', sans-serif;
-  font-size: 16px;
+  font-size: calc(var(--fs) * 1);
   padding: 13px 16px;
   border: 1px solid var(--line);
   border-radius: 1px;
@@ -534,7 +546,7 @@ select {
   padding: 10px 14px;
   cursor: pointer;
   font-family: 'Inter', sans-serif;
-  font-size: 13px;
+  font-size: calc(var(--fs) * 0.8125);
   border-bottom: 1px solid var(--line);
   transition: background 0.1s;
 }
@@ -548,7 +560,7 @@ select {
 .airport-iata {
   font-weight: 700;
   color: var(--ink);
-  font-size: 12px;
+  font-size: calc(var(--fs) * 0.75);
   letter-spacing: 0.06em;
   flex-shrink: 0;
   min-width: 32px;
@@ -569,7 +581,7 @@ select {
 
 .party-members-block h3 {
   font-family: 'Inter', sans-serif;
-  font-size: 12px;
+  font-size: calc(var(--fs) * 0.75);
   letter-spacing: 0.16em;
   text-transform: uppercase;
   color: var(--ink-soft);
@@ -603,19 +615,19 @@ select {
   justify-content: center;
   background: var(--ink);
   color: var(--cream);
-  font-size: 11px;
+  font-size: calc(var(--fs) * 0.6875);
   font-weight: 600;
   flex-shrink: 0;
 }
 
 .party-member-name {
-  font-size: 14px;
+  font-size: calc(var(--fs) * 0.875);
   color: var(--charcoal);
 }
 
 .party-leader-badge {
   font-family: 'Inter', sans-serif;
-  font-size: 10px;
+  font-size: calc(var(--fs) * 0.625);
   font-weight: 600;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -634,12 +646,12 @@ select {
 .doc-slot {
   border: 1px solid var(--line);
   padding: 14px 16px;
-  background: #fffefb;
+  background: transparent;
 }
 
 .doc-slot-label {
   font-family: 'Inter', sans-serif;
-  font-size: 13px;
+  font-size: calc(var(--fs) * 0.8125);
   font-weight: 600;
   color: var(--ink);
   margin-bottom: 10px;
@@ -662,9 +674,11 @@ select {
 @keyframes pulse { 0%, 100% { opacity: 0.3; } 50% { opacity: 1; } }
 
 @media (max-width: 600px) {
-  .card { padding: 40px 22px; }
+  .card { padding: calc(var(--fs) * 2.5) calc(var(--fs) * 1.4); }
+  .submit-bar { flex-wrap: wrap; }
+  .submit-bar button { flex: 1 1 auto; padding-left: 16px; padding-right: 16px; }
   .attendance-row { flex-direction: column; align-items: flex-start; gap: 6px; }
-  .attendance-row select { width: 100%; }
+  .attendance-row select { width: 100%; min-width: 0; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -673,7 +687,7 @@ select {
 
 /* Attending-the-wedding checkbox (top of each guest card) */
 .attending-toggle {
-  font-size: 15px;
+  font-size: calc(var(--fs) * 0.9375);
   font-weight: 500;
   margin: 6px 0 4px;
 }
@@ -685,7 +699,7 @@ select {
 textarea {
   width: 100%;
   font-family: 'Inter', sans-serif;
-  font-size: 16px;
+  font-size: calc(var(--fs) * 1);
   padding: 13px 16px;
   border: 1px solid var(--line);
   border-radius: 1px;
@@ -697,3 +711,89 @@ textarea {
 }
 textarea:focus { border-color: var(--gold); }
 .pickup-wrap { margin: 4px 0 8px; }
+
+/* ============================================================
+   Dynamic background: couple photo + flowers
+   Swap the artwork by replacing the files in /assets (see README).
+   ============================================================ */
+:root {
+  --couple-photo: url("assets/couple.jpg"); /* add your photo here; nothing shows until it exists */
+
+  /* Photo position as "horizontal vertical", e.g. "50% 30%" or "20% 15%".
+     Horizontal: 0% = left edge of the photo, 50% = centre, 100% = right edge.
+     Vertical:   0% = top edge, 50% = centre, 100% = bottom edge.
+     (Keywords work too: "left top", "center bottom".)
+     The photo always fills the screen, so it can only slide along the direction in which it
+     is being cropped: sideways if the photo is wider than the screen's shape, up/down if it is taller. */
+  --couple-photo-position: 50% 30%;
+
+  /* The centre window: 1 = solid white, 0 = fully see-through. */
+  --card-opacity: 0.88;
+  /* How much the picture behind the window is blurred (0px = sharp). Helps text stay readable. */
+  --card-blur: 4px;
+
+  /* Flower size. No flower is ever wider than 20% of the screen width (so none reaches far into the centre card).
+     Side flowers are drawn at exactly the same scale as the corners; background.js keeps both under the 20% cap
+     and sets this value itself, this is the starting value. */
+  --corner-width: min(20vw, 360px);
+}
+
+/* Couple photo: fixed to the viewport, always covers it at any size/orientation,
+   and drifts very slowly as the page scrolls (see background.js). */
+.bg-photo {
+  position: fixed;
+  top: -8vh; bottom: -8vh; left: -4vw; right: -4vw; /* a little oversize so the drift never shows an edge */
+  z-index: 0;
+  pointer-events: none;
+  background-image: var(--couple-photo);
+  background-size: cover;
+  background-position: var(--couple-photo-position);
+  background-repeat: no-repeat;
+  will-change: transform;
+}
+/* Flowers: one layer covering the whole page height, clipped so it never causes sideways scrolling */
+.bg-flowers {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+.bg-corner {
+  position: absolute;
+  width: var(--corner-width);
+  will-change: transform;
+}
+.bg-corner img { display: block; width: 100%; height: auto; }
+/* Each corner has its own artwork (assets/corners), shown exactly as saved: no mirroring or rotation. */
+.bg-corner-tl { top: 0; left: 0; }
+.bg-corner-tr { top: 0; right: 0; }
+.bg-corner-bl { bottom: 0; left: 0; }
+.bg-corner-br { bottom: 0; right: 0; }
+
+/* Side flowers: background.js stacks images from assets/sides/ down each edge and adds/removes
+   them as the screen or page height changes, keeping clear of the corner flowers. Only on screens wide enough to have room beside the card
+   (the 900px limit lives in background.js too, as MIN_WIDTH). */
+.bg-side {
+  position: absolute;
+  top: 0; bottom: 0;
+  width: 50%; /* just a clipping box: each flower sets its own size */
+  overflow: hidden;
+  display: none;
+}
+.bg-side-left  { left: 0; }
+.bg-side-right { right: 0; }
+.bg-side-track {
+  position: absolute;
+  left: 0; right: 0; top: 0;
+  display: flex;
+  flex-direction: column;
+  will-change: transform;
+}
+.bg-side-right .bg-side-track { align-items: flex-end; } /* right-hand flowers hug the right edge */
+.bg-side-track img { display: block; flex: none; } /* width/height are set by background.js */
+@media (min-width: 900px) { .bg-side { display: block; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .bg-photo, .bg-corner, .bg-side-track { will-change: auto; }
+}
