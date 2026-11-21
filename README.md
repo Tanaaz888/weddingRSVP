@@ -9,36 +9,53 @@ Three pieces, all free:
 
 ## 1. Your Google Sheet
 
-One tab, one row per person. Header row exactly like this (order doesn't matter, names do):
+One tab, one row per person. Use this header row, in this order (the script finds columns by name, case-insensitively, so the order is for your convenience, not a requirement):
 
-**Readable — you fill these in before sharing the site:**
+```
+UID | Name | Party name | POC | Pickup | Mehndi | Haldi | Sangeet | Vidhi | Tea Ceremony | Dinner |
+Attending Wedding | Full Name | Phone Number | Travelling from Overseas | Travelling Domestically |
+Airport Pickup Required | Arrival Flight Number | Arrival Travel Date | Arrival Travel Time | Arrival Airport |
+Mehndi - Attending | Haldi - Attending | Sangeet - Attending | Vidhi - Attending | Tea Ceremony - Attending | Dinner - Attending |
+Food Allergies | Local Indian | Song Requests | Message for the Couple |
+Passport | Visa / OCI | Aadhar Card
+```
 
-| UID | Name | Party name | POC | Pickup | Mehndi | Haldi | Sangeet | Vidhi | Tea ceremony | Dinner |
+(That is one single row of 34 headers, wrapped here for readability.)
+
+**Readable — columns A–K, you fill these in before sharing the site:**
+
+| UID | Name | Party name | POC | Pickup | Mehndi | Haldi | Sangeet | Vidhi | Tea Ceremony | Dinner |
 |---|---|---|---|---|---|---|---|---|---|---|
 | K7M2QX9TPD | Aarav Mehta | Mehta Family | Aarav Mehta | TRUE | TRUE | TRUE | TRUE | FALSE | FALSE | TRUE |
 | K7M2QX9TPD | Riya Mehta | Mehta Family | Aarav Mehta | TRUE | TRUE | TRUE | TRUE | FALSE | FALSE | TRUE |
 
 - **UID**: the party's **10-character login code** (letters and numbers), and the **only** thing a guest types on the site. Use the same UID on every row in the party. Don't make them up by hand: in the sheet use **RSVP → Generate missing UIDs** (this adds the UID column at the far left if it's missing, formats it as plain text, and gives each party a unique code). It's safe to re-run later when you add guests — existing UIDs are never changed. Send each party's UID to its leader privately; anyone with the code can submit for that whole party.
-- **Name**: that row's person. No longer typed by guests; the script uses it to find each person's own row when saving.
+- **Name**: that row's person. No longer typed by guests; the script uses it to find each person's own row when saving, and to name their Drive upload folder.
 - **Party name**: a **shared label** — put the exact same value on every row belonging to the same group (e.g. "Mehta Family"). The website groups people by UID; this label is used by *Generate missing UIDs* to decide which rows share one code.
-- **POC**: the party leader's name, repeated on every row in that party. It's now **display-only** (shown as "Welcome, <POC>"); access is controlled entirely by the UID.
-- **Pickup**: **internal only — never appears on the website.** Tick this (checkbox or TRUE/Yes) for a party if you need to collect their overseas travel/arrival info. It's a party-level flag, same as the event columns — tick at least one row in the party (simplest to tick every row the same way). If it's left unticked for a party, the "Travelling from overseas" question and all the arrival fields are **not shown at all** on the form for anyone in that party, and those columns are always left blank on submit, no matter what.
-- **Mehndi / Haldi / Sangeet / Vidhi / Tea ceremony / Dinner**: tick the checkbox (or type TRUE/Yes) for every event *the party* is invited to. These are party-level invites — every person in the same party sees the same set of events to confirm. It's simplest to tick the same boxes on every row belonging to that party, but the script also works if you only tick it on one row in the party (it unions across the party's rows).
+- **POC**: the party leader's name, repeated on every row in that party. It's **display-only** (shown as "Welcome, <POC>"); access is controlled entirely by the UID.
+- **Pickup**: **internal only — never appears on the website.** Tick this (checkbox or TRUE/Yes) for a party if you need to collect their overseas travel info. It's a party-level flag, same as the event columns — tick at least one row in the party (simplest to tick every row the same way). If it's left unticked for a party, the whole travel section (overseas / domestic / airport pick-up / arrival fields) is **not shown at all** for anyone in that party, and those columns are always left blank on submit.
+- **Mehndi / Haldi / Sangeet / Vidhi / Tea Ceremony / Dinner**: tick the checkbox (or type TRUE/Yes) for every event *the party* is invited to. These are party-level invites — every person in the same party sees the same set of events to confirm. It's simplest to tick the same boxes on every row belonging to that party, but the script also works if you only tick it on one row in the party (it unions across the party's rows).
 
-**Writable — leave these columns blank, the form fills them in:**
+**Writable — columns L–AH, leave these blank, the form fills them in:**
 
-`Attending Wedding | Full Name | Phone Number | Travelling from Overseas | Arrival Flight Number | Arrival Travel Date | Arrival Travel Time | Arrival Airport | Identification 1 | Identification 2 | Identification 3`
+| Column | What the form puts there |
+|---|---|
+| **Attending Wedding** | Yes/No, from the "I can attend the wedding" tickbox at the top of each person's block. If left unticked, the rest of that person's fields are hidden; on submit they are recorded as `No`, every invited event is set to `No`, and their other answers and uploaded ID files are cleared. |
+| **Full Name** | Labelled "Full name" on the form, with the helper line "Full name as per passport". |
+| **Phone Number** | Validated mobile number, stored in international format. |
+| **Travelling from Overseas** / **Travelling Domestically** | Yes/No tickboxes (mutually exclusive), only shown if the party's **Pickup** column is ticked; otherwise left blank. |
+| **Airport Pickup Required** | Yes/No. Only asked when the guest ticks "Travelling from overseas": a second tickbox asks whether they need an airport pick-up arranged. |
+| **Arrival Flight Number / Travel Date / Travel Time / Airport** | Only requested, required and saved if the guest ticks that they need an airport pick-up; otherwise blank. **Arrival Travel Time is entered and stored in IST** — the form carries a notice reminding guests of this (IST is UTC+5:30, 5 h 30 min ahead of UTC). |
+| **Mehndi / Haldi / Sangeet / Vidhi / Tea Ceremony / Dinner - Attending** | Each person's Yes/No for each event the party is invited to. |
+| **Food Allergies** | Optional free text (max 200 characters). |
+| **Local Indian** | Yes/No tickbox; decides which ID slots the guest sees (locals: Aadhar Card; others: Passport + Visa / OCI). |
+| **Song Requests** | Optional free text (max 300 characters). |
+| **Message for the Couple** | Optional free text (max 500 characters). |
+| **Passport / Visa / OCI / Aadhar Card** | One private Drive link per line, for each uploaded file (up to 5 files per document type). |
 
-- **Attending Wedding**: Yes/No, set by the "I can attend the wedding" tickbox at the top of each person's block. If left unticked, the rest of that person's fields are hidden; on submit they are recorded as `No`, every invited event is set to `No`, and their other answers and uploaded ID files are cleared.
-- **Arrival Travel Time**: entered and stored in **IST**; the form shows a notice reminding guests to enter it in IST (UTC+5:30, 5 h 30 min ahead of UTC).
-- **Full Name**: labeled on the form as "Full name", with a helper line underneath saying "Full name as per passport".
-- **Travelling from overseas**: Yes/No, set by a tickbox on the form — but the tickbox and the four "Arrival..." fields only show up at all if the party's **Pickup** column is ticked. If Pickup isn't ticked, this whole section is skipped on the form and these columns stay blank. If Pickup is ticked, the four "Arrival..." columns are still only filled in when overseas is ticked Yes — otherwise they're left blank and the form greys those fields out (disabled, not required).
+If you leave any of these headers out, the script adds the missing column at the far right the first time someone submits — so creating them all up front in the order above is the tidiest option.
 
-The script will also **automatically add** one column per event the first time anyone submits, e.g. `Mehndi - Attending`, `Haldi - Attending` — that's where each person's Yes/No lands.
-
-> If someone uploads more than 3 ID photos, photos 4 and onward get appended into the `Identification 3` cell (one link per line) so nothing is lost — they're not dropped.
-
-> **Re-submitting / editing**: when the party leader looks their name up again, the form comes back pre-filled with whatever was last saved for every person in the party (names, phone, attendance, overseas travel details) — so they're editing, not starting from scratch.
+> **Re-submitting / editing**: when the party leader looks their name up again, the form comes back pre-filled with whatever was last saved for every person in the party (names, phone, attendance, travel details, optional answers) — so they're editing, not starting from scratch.
 
 > **Existing attachments on re-visit**: for privacy, previously uploaded files show up as a **filename only** — no thumbnail, no preview, no clickable link. The leader can remove any of them (✕) to replace it, or just leave it and add more alongside it. Newly added files in the same session still get a full thumbnail preview, since those are still sitting in the browser and haven't been uploaded yet.
 

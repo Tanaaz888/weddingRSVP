@@ -4,7 +4,7 @@
  * YOUR SHEET (tab name set in SHEET_NAME below) — ONE ROW PER PERSON:
  *
  *  Readable (you pre-fill these before sharing the site):
- *    UID | Name | Party name | POC | Pickup | Mehndi | Haldi | Sangeet | Vidhi | Tea ceremony | Dinner
+ *    UID | Name | Party name | POC | Pickup | Mehndi | Haldi | Sangeet | Vidhi | Tea Ceremony | Dinner
  *
  *    - "UID": the party's 10-character alphanumeric LOGIN CODE (e.g. "K7M2QX9TPD").
  *      It is the ONLY thing a guest types on the site. Put the exact same UID
@@ -54,12 +54,10 @@
  *      arrival fields are simply hidden (nothing is shown in their place). If
  *      "Pickup" isn't ticked, all of these columns are left blank.
  *
- *  On the FIRST submission to the sheet, the script auto-adds these columns
- *  right after "Arrival Airport", in this fixed order, all at once — so the
- *  layout never depends on which event someone happens to RSVP for first:
- *    Mehndi - Attending | Haldi - Attending | Sangeet - Attending |
- *    Vidhi - Attending | Tea ceremony - Attending | Dinner - Attending
- *  ...followed by Local Indian | Passport | Visa / OCI | Aadhar Card at the end.
+ *  Column names are matched case-insensitively and the column ORDER doesn't
+ *  matter. If a column the script needs is missing, it is added at the far
+ *  right on the first submission (so you can also pre-create them all in
+ *  whatever order you like — see README.md for the recommended order).
  *
  *  Uploaded verification photos are saved into Drive under a folder called
  *  UPLOAD_FOLDER_NAME, with one SUBFOLDER PER GUEST — named after their
@@ -111,11 +109,11 @@ const EVENT_INFO = {
   'Haldi':         '11 Dec 2026, 10:00 AM',
   'Sangeet':       '11 Dec 2026, 7:00 PM',
   'Vidhi':         '12 Dec 2026, 9:00 AM',
-  'Tea ceremony':  '12 Dec 2026, 10:00 AM',
+  'Tea Ceremony':  '12 Dec 2026, 10:00 AM',
   'Dinner':        '12 Dec 2026, 8:00 PM'
 };
 
-const EVENT_COLUMNS = ['Mehndi', 'Haldi', 'Sangeet', 'Vidhi', 'Tea ceremony', 'Dinner'];
+const EVENT_COLUMNS = ['Mehndi', 'Haldi', 'Sangeet', 'Vidhi', 'Tea Ceremony', 'Dinner'];
 const SHEET_NAME = 'Sheet1'; // change if your tab is named differently
 const UPLOAD_FOLDER_NAME = 'RSVP Uploads - Han Seng & Tanaaz';
 const UID_LENGTH = 10;
@@ -161,7 +159,9 @@ function getHeaders(sheet) {
 }
 
 function colIndex(headers, name) {
-  return headers.indexOf(name); // 0-based; -1 if not found
+  // Case-insensitive, so "Tea Ceremony" and "Tea ceremony" are the same column.
+  const target = String(name).trim().toLowerCase();
+  return headers.findIndex(h => String(h).trim().toLowerCase() === target); // 0-based; -1 if not found
 }
 
 /** Returns the 0-based column index for `name`, creating the column if missing. */
@@ -341,6 +341,10 @@ function buildSavedData(rowData, headers, invitedEvents) {
     localIndian: get('Local Indian'),
     travellingOverseas: get('Travelling from Overseas'),
     travellingDomestically: get('Travelling Domestically'),
+    airportPickup: get('Airport Pickup Required'),
+    foodAllergies: get('Food Allergies'),
+    songRequests: get('Song Requests'),
+    messageForCouple: get('Message for the Couple'),
     arrivalFlightNumber: get('Arrival Flight Number'),
     arrivalDate: getDate('Arrival Travel Date'),
     arrivalTime: getTime('Arrival Travel Time'),
@@ -397,7 +401,8 @@ function submitRsvp(payload) {
   EVENT_COLUMNS.forEach(eventName => {
     ensureColumn(sheet, headers, `${eventName} - Attending`);
   });
-  ['Local Indian', 'Passport', 'Visa / OCI', 'Aadhar Card', 'Travelling Domestically', 'Attending Wedding'].forEach(colName => {
+  ['Local Indian', 'Passport', 'Visa / OCI', 'Aadhar Card', 'Travelling Domestically', 'Attending Wedding',
+   'Airport Pickup Required', 'Food Allergies', 'Song Requests', 'Message for the Couple'].forEach(colName => {
     ensureColumn(sheet, headers, colName);
   });
 
@@ -425,7 +430,8 @@ function submitRsvp(payload) {
     if (String(guest.attendingWedding || '').trim().toLowerCase() !== 'yes') {
       writeCell(sheet, headers, rowNum, 'Attending Wedding', 'No');
       ['Full Name', 'Phone Number', 'Local Indian', 'Travelling from Overseas', 'Travelling Domestically',
-       'Arrival Flight Number', 'Arrival Travel Date', 'Arrival Travel Time', 'Arrival Airport'
+       'Airport Pickup Required', 'Arrival Flight Number', 'Arrival Travel Date', 'Arrival Travel Time', 'Arrival Airport',
+       'Food Allergies', 'Song Requests', 'Message for the Couple'
       ].forEach(colName => writeCell(sheet, headers, rowNum, colName, ''));
       invitedEventNames.forEach(eventName => writeCell(sheet, headers, rowNum, `${eventName} - Attending`, 'No'));
 
@@ -451,13 +457,22 @@ function submitRsvp(payload) {
     // columns stay blank even if something odd came in from the browser.
     const isOverseas = pickupRequired && String(guest.travellingOverseas || '').trim().toLowerCase() === 'yes';
     const isDomestic = pickupRequired && !isOverseas && String(guest.travellingDomestically || '').trim().toLowerCase() === 'yes';
+    // Airport pick-up is only asked of overseas travellers. Arrival details are
+    // only collected (and written) when they say they need a pick-up.
+    const needsPickup = isOverseas && String(guest.airportPickup || '').trim().toLowerCase() === 'yes';
+    writeCell(sheet, headers, rowNum, 'Airport Pickup Required', pickupRequired ? (needsPickup ? 'Yes' : 'No') : '');
     writeCell(sheet, headers, rowNum, 'Travelling from Overseas', pickupRequired ? (isOverseas ? 'Yes' : 'No') : '');
     writeCell(sheet, headers, rowNum, 'Travelling Domestically', pickupRequired ? (isDomestic ? 'Yes' : 'No') : '');
-    writeCell(sheet, headers, rowNum, 'Arrival Flight Number', isOverseas ? cleanText(guest.arrivalFlightNumber, 20) : '');
-    writeCell(sheet, headers, rowNum, 'Arrival Travel Date', isOverseas ? cleanText(guest.arrivalDate, 20) : '');
+    writeCell(sheet, headers, rowNum, 'Arrival Flight Number', needsPickup ? cleanText(guest.arrivalFlightNumber, 20) : '');
+    writeCell(sheet, headers, rowNum, 'Arrival Travel Date', needsPickup ? cleanText(guest.arrivalDate, 20) : '');
     // Time is entered and stored in IST (the form says so explicitly).
-    writeCell(sheet, headers, rowNum, 'Arrival Travel Time', isOverseas ? cleanText(guest.arrivalTime, 20) : '');
-    writeCell(sheet, headers, rowNum, 'Arrival Airport', isOverseas ? cleanText(guest.arrivalAirport) : '');
+    writeCell(sheet, headers, rowNum, 'Arrival Travel Time', needsPickup ? cleanText(guest.arrivalTime, 20) : '');
+    writeCell(sheet, headers, rowNum, 'Arrival Airport', needsPickup ? cleanText(guest.arrivalAirport) : '');
+
+    // Optional free-text answers (length-capped; formula-looking text is neutralised by writeCell).
+    writeCell(sheet, headers, rowNum, 'Food Allergies', cleanText(guest.foodAllergies, 200));
+    writeCell(sheet, headers, rowNum, 'Song Requests', cleanText(guest.songRequests, 300));
+    writeCell(sheet, headers, rowNum, 'Message for the Couple', cleanText(guest.messageForCouple, 500));
 
     // Attendance per event -> auto-created "<Event> - Attending" columns
     // Event names come from the sheet (never from the browser) and values must be

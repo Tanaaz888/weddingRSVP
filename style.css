@@ -680,3 +680,20 @@ select {
 .attending-toggle input[type="checkbox"] { width: 20px; height: 20px; }
 .attending-helper { margin: 2px 0 6px; }
 
+
+/* Optional free-text fields */
+textarea {
+  width: 100%;
+  font-family: 'Inter', sans-serif;
+  font-size: 16px;
+  padding: 13px 16px;
+  border: 1px solid var(--line);
+  border-radius: 1px;
+  background: #fff;
+  color: var(--charcoal);
+  outline: none;
+  resize: vertical;
+  transition: border-color 0.2s;
+}
+textarea:focus { border-color: var(--gold); }
+.pickup-wrap { margin: 4px 0 8px; }

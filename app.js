@@ -304,6 +304,10 @@ function renderGuestForms(guests, pickupRequired) {
 
     const isOverseasSaved = String(saved.travellingOverseas || '').toLowerCase() === 'yes';
     const isDomesticSaved = String(saved.travellingDomestically || '').toLowerCase() === 'yes';
+    // Airport pick-up is only asked when travelling from overseas. Rows saved before
+    // this checkbox existed, which already hold flight details, count as "needs pick-up".
+    const savedPickup = String(saved.airportPickup || '').toLowerCase();
+    const isPickupSaved = isOverseasSaved && (savedPickup === 'yes' || (!savedPickup && !!saved.arrivalFlightNumber));
 
     // The whole "Travel Details" block (the overseas/domestic tickboxes +
     // arrival fields) only exists in the DOM at all if this party's
@@ -322,20 +326,28 @@ function renderGuestForms(guests, pickupRequired) {
         </label>
       </div>
 
-      <div class="overseas-fields" data-active="${isOverseasSaved}" style="${isDomesticSaved ? 'display:none;' : ''}">
+      <div class="pickup-wrap" style="${isOverseasSaved ? '' : 'display:none;'}">
+        <label class="checkbox-label">
+          <input type="checkbox" class="pickup-checkbox" ${isPickupSaved ? 'checked' : ''} />
+          I need airport pick-up arranged for me
+        </label>
+        <p class="helper-text">Tick this and we'll ask for your arrival flight details so we can schedule your pick-up from the airport.</p>
+      </div>
+
+      <div class="overseas-fields" data-active="${isPickupSaved}" style="${isPickupSaved ? '' : 'display:none;'}">
         <label>Arrival flight number<span class="req">*</span></label>
-        <input type="text" class="arrival-flight-number" placeholder="e.g. SQ123" value="${escapeHtml(saved.arrivalFlightNumber || '')}" ${isOverseasSaved ? '' : 'disabled'} />
+        <input type="text" class="arrival-flight-number" placeholder="e.g. SQ123" value="${escapeHtml(saved.arrivalFlightNumber || '')}" ${isPickupSaved ? '' : 'disabled'} />
 
         <label>Arrival travel date<span class="req">*</span></label>
-        <input type="date" class="arrival-date" value="${escapeHtml(saved.arrivalDate || '')}" ${isOverseasSaved ? '' : 'disabled'} />
+        <input type="date" class="arrival-date" value="${escapeHtml(saved.arrivalDate || '')}" ${isPickupSaved ? '' : 'disabled'} />
 
         <label>Arrival travel time (IST)<span class="req">*</span></label>
         <p class="helper-text">Please enter your arrival time in <strong>Indian Standard Time (IST)</strong>. IST is UTC+5:30, i.e. 5 hr 30 min ahead of UTC.</p>
-        <input type="time" class="arrival-time" value="${escapeHtml(saved.arrivalTime || '')}" ${isOverseasSaved ? '' : 'disabled'} />
+        <input type="time" class="arrival-time" value="${escapeHtml(saved.arrivalTime || '')}" ${isPickupSaved ? '' : 'disabled'} />
 
         <label>Arrival airport<span class="req">*</span></label>
         <div class="airport-dropdown-wrap" data-value="${escapeHtml(saved.arrivalAirport || '')}">
-          <input type="text" class="airport-search" placeholder="Search by city, airport name or IATA code…" autocomplete="off" ${isOverseasSaved ? '' : 'disabled'} />
+          <input type="text" class="airport-search" placeholder="Search by city, airport name or IATA code…" autocomplete="off" ${isPickupSaved ? '' : 'disabled'} />
           <div class="airport-dropdown-list" style="display:none;"></div>
           <input type="hidden" class="arrival-airport" value="${escapeHtml(saved.arrivalAirport || '')}" />
         </div>
@@ -397,6 +409,16 @@ function renderGuestForms(guests, pickupRequired) {
           <div class="doc-slot-control"></div>
         </div>
       </div>
+
+      <h3 style="margin-top:28px;">Optional</h3>
+      <label>Food allergies / dietary requirements</label>
+      <textarea class="food-allergies" rows="2" maxlength="200" placeholder="e.g. peanuts, shellfish, vegetarian">${escapeHtml(saved.foodAllergies || '')}</textarea>
+
+      <label>Song requests</label>
+      <textarea class="song-requests" rows="2" maxlength="300" placeholder="Songs you'd love to hear on the dance floor">${escapeHtml(saved.songRequests || '')}</textarea>
+
+      <label>Message or anything else for the Couple</label>
+      <textarea class="couple-message" rows="3" maxlength="500" placeholder="Anything you'd like Han Seng &amp; Tanaaz to know">${escapeHtml(saved.messageForCouple || '')}</textarea>
       </div><!-- /.guest-details -->
     `;
     container.appendChild(card);
@@ -436,69 +458,50 @@ function renderGuestForms(guests, pickupRequired) {
     });
   });
 
-  container.querySelectorAll('.overseas-checkbox').forEach(checkbox => {
-    checkbox.addEventListener('change', () => {
-      const guestCard = checkbox.closest('.guest-card');
-      const fieldsWrap = guestCard.querySelector('.overseas-fields');
-      const domesticCheckbox = guestCard.querySelector('.domestic-checkbox');
-      fieldsWrap.dataset.active = checkbox.checked;
-      fieldsWrap.style.display = '';
+  // Travel logic for each card:
+  //   overseas ticked  -> show the "need airport pick-up?" checkbox
+  //   pick-up ticked   -> show (and require) the arrival flight details
+  //   otherwise        -> no arrival details are asked for or sent
+  container.querySelectorAll('.guest-card').forEach(guestCard => {
+    const overseasBox = guestCard.querySelector('.overseas-checkbox');
+    if (!overseasBox) return; // party doesn't collect travel info
+    const domesticBox = guestCard.querySelector('.domestic-checkbox');
+    const pickupBox = guestCard.querySelector('.pickup-checkbox');
+    const pickupWrap = guestCard.querySelector('.pickup-wrap');
+    const fieldsWrap = guestCard.querySelector('.overseas-fields');
 
-      // Enable/disable all plain inputs except the hidden airport value
+    function updateTravelUI() {
+      const overseas = overseasBox.checked;
+      pickupWrap.style.display = overseas ? '' : 'none';
+      if (!overseas) pickupBox.checked = false;
+
+      const showArrival = overseas && pickupBox.checked;
+      fieldsWrap.dataset.active = showArrival;
+      fieldsWrap.style.display = showArrival ? '' : 'none';
       fieldsWrap.querySelectorAll('input:not([type="hidden"])').forEach(inp => {
-        inp.disabled = !checkbox.checked;
-        if (!checkbox.checked) inp.value = '';
+        inp.disabled = !showArrival;
+        if (!showArrival) inp.value = '';
       });
-
-      // Also clear the airport hidden value and search display
-      if (!checkbox.checked) {
+      if (!showArrival) {
         const wrap = fieldsWrap.querySelector('.airport-dropdown-wrap');
-        if (wrap) {
-          wrap.querySelector('.arrival-airport').value = '';
-          wrap.querySelector('.airport-search').value = '';
-          wrap.querySelector('.airport-dropdown-list').style.display = 'none';
-        }
+        wrap.querySelector('.arrival-airport').value = '';
+        wrap.querySelector('.airport-dropdown-list').style.display = 'none';
+        wrap.classList.remove('field-error');
+        fieldsWrap.querySelectorAll('.field-error').forEach(el => el.classList.remove('field-error'));
       }
+    }
 
-      // Ticking "overseas" unticks "domestic" so only one can be selected
-      if (checkbox.checked && domesticCheckbox && domesticCheckbox.checked) {
-        domesticCheckbox.checked = false;
-        domesticCheckbox.dispatchEvent(new Event('change'));
+    overseasBox.addEventListener('change', () => {
+      if (overseasBox.checked && domesticBox.checked) domesticBox.checked = false; // only one of the two
+      updateTravelUI();
+    });
+    domesticBox.addEventListener('change', () => {
+      if (domesticBox.checked && overseasBox.checked) {
+        overseasBox.checked = false;
+        updateTravelUI();
       }
     });
-  });
-
-  container.querySelectorAll('.domestic-checkbox').forEach(checkbox => {
-    checkbox.addEventListener('change', () => {
-      const guestCard = checkbox.closest('.guest-card');
-      const overseasCheckbox = guestCard.querySelector('.overseas-checkbox');
-      const fieldsWrap = guestCard.querySelector('.overseas-fields');
-
-      // Ticking "domestic" unticks "overseas" so only one can be selected
-      if (checkbox.checked && overseasCheckbox && overseasCheckbox.checked) {
-        overseasCheckbox.checked = false;
-        overseasCheckbox.dispatchEvent(new Event('change'));
-      }
-
-      // Domestic travel skips arrival details entirely — they're hidden and
-      // cleared, and nothing is shown in their place.
-      if (fieldsWrap) {
-        fieldsWrap.style.display = checkbox.checked ? 'none' : '';
-        if (checkbox.checked) {
-          fieldsWrap.dataset.active = 'false';
-          fieldsWrap.querySelectorAll('input:not([type="hidden"])').forEach(inp => {
-            inp.disabled = true;
-            inp.value = '';
-          });
-          const wrap = fieldsWrap.querySelector('.airport-dropdown-wrap');
-          if (wrap) {
-            wrap.querySelector('.arrival-airport').value = '';
-            wrap.querySelector('.airport-search').value = '';
-            wrap.querySelector('.airport-dropdown-list').style.display = 'none';
-          }
-        }
-      }
-    });
+    pickupBox.addEventListener('change', updateTravelUI);
   });
 
   container.querySelectorAll('.local-indian-checkbox').forEach(checkbox => {
@@ -887,6 +890,7 @@ document.getElementById('rsvp-form').addEventListener('submit', async (e) => {
     // flag is set — otherwise there's nothing to read or validate, and the
     // payload sends "No"/blank for all of them.
     const overseasChecked = pickupRequired ? card.querySelector('.overseas-checkbox').checked : false;
+    const airportPickup = pickupRequired && overseasChecked ? card.querySelector('.pickup-checkbox').checked : false;
     const domesticChecked = pickupRequired ? card.querySelector('.domestic-checkbox').checked : false;
     const arrivalFlightNumber = pickupRequired ? card.querySelector('.arrival-flight-number').value.trim() : '';
     const arrivalDate = pickupRequired ? card.querySelector('.arrival-date').value : '';
@@ -993,7 +997,8 @@ document.getElementById('rsvp-form').addEventListener('submit', async (e) => {
       return;
     }
 
-    if (pickupRequired && overseasChecked) {
+    // Flight details are only requested if the guest needs airport pick-up.
+    if (pickupRequired && overseasChecked && airportPickup) {
       if (!arrivalFlightNumber) {
         const el = card.querySelector('.arrival-flight-number');
         setError('form-error', `Please enter the arrival flight number for ${name}.`);
@@ -1050,7 +1055,11 @@ document.getElementById('rsvp-form').addEventListener('submit', async (e) => {
       localIndian: isLocal ? 'Yes' : 'No',
       travellingOverseas: overseasChecked ? 'Yes' : 'No',
       travellingDomestically: domesticChecked ? 'Yes' : 'No',
+      airportPickup: airportPickup ? 'Yes' : 'No',
       arrivalFlightNumber, arrivalDate, arrivalTime, arrivalAirport,
+      foodAllergies: card.querySelector('.food-allergies').value.trim(),
+      songRequests: card.querySelector('.song-requests').value.trim(),
+      messageForCouple: card.querySelector('.couple-message').value.trim(),
       attendance,
       docSlots: docSlotPayload
     });
