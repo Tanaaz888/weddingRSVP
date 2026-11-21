@@ -2,6 +2,21 @@
 let currentParty = null; // { uid, matchedName, guests: [{ name, invitedEvents: [{name, dateTime}] }] }
 let airportsCache = null; // loaded once on first form render
 const MAX_FILES_PER_SLOT = 5;
+const MAX_FILE_BYTES = 10 * 1024 * 1024; // keep in sync with MAX_FILE_BYTES in Code.gs
+
+/** Friendly pre-check so guests find out immediately; the server re-checks the real file contents. */
+function uploadProblem(file) {
+  const okType = /^(image\/(jpeg|png|webp|heic|heif)|application\/pdf)$/i.test(file.type || '');
+  const okExt = /\.(jpe?g|png|webp|heic|heif|pdf)$/i.test(file.name || '');
+  // Some browsers report an empty type for HEIC, so fall back to the extension then.
+  if (!okType && !(okExt && (!file.type || file.type === 'application/octet-stream'))) {
+    return 'not a supported file type (use JPG, PNG, WebP, HEIC or PDF)';
+  }
+  if (file.size > MAX_FILE_BYTES) {
+    return 'larger than ' + Math.round(MAX_FILE_BYTES / 1048576) + ' MB';
+  }
+  return '';
+}
 
 // ---------- Helpers ----------
 function show(screenId) {
@@ -79,7 +94,7 @@ function toTitleCase(str) {
 /** Fetch the Algolia airports dataset once and cache it. */
 async function loadAirports() {
   if (airportsCache) return airportsCache;
-  const res = await fetch('https://raw.githubusercontent.com/algolia/datasets/master/airports/airports.json');
+  const res = await fetch('data/airports.json');
   airportsCache = await res.json();
   return airportsCache;
 }
@@ -96,7 +111,9 @@ function fileToBase64(file) {
 function escapeHtml(str) {
   const div = document.createElement('div');
   div.textContent = str == null ? '' : String(str);
-  return div.innerHTML;
+  // textContent->innerHTML escapes & < > but NOT quotes, and this is also used
+  // inside value="..." attributes — so escape quotes too.
+  return div.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
 // ---------- Screen 1: Welcome / lookup ----------
@@ -129,7 +146,10 @@ async function findParty() {
   btn.textContent = 'Searching…';
 
   try {
-    const res = await fetch(`${API_URL}?action=getParty&uid=${encodeURIComponent(uid)}`);
+    const res = await fetch(API_URL, {
+      method: 'POST', // POST so the code never appears in a URL
+      body: JSON.stringify({ action: 'getParty', uid })
+    });
     const data = await res.json();
 
     if (data.status === 'not_leader') {
@@ -370,7 +390,7 @@ function renderGuestForms(guests, pickupRequired) {
     `;
     container.appendChild(card);
 
-    // Per-slot state: { existingFiles: [{fileName, url}], newFiles: [{ file: File, objectUrl: string }] }
+    // Per-slot state: { existingFiles: [{fileName, id}], newFiles: [{ file: File, objectUrl: string }] }
     // Up to MAX_FILES_PER_SLOT combined (existing + new) per slot.
     // objectUrls are created once on file selection and revoked explicitly on removal or form teardown.
     card._docSlots = {
@@ -770,7 +790,16 @@ function renderDocSlots(card) {
       uploadBtn.addEventListener('click', () => hiddenInput.click());
       hiddenInput.addEventListener('change', () => {
         const remaining = MAX_FILES_PER_SLOT - (state.existingFiles.length + state.newFiles.length);
-        const filesToAdd = Array.from(hiddenInput.files).slice(0, Math.max(remaining, 0));
+        const rejected = [];
+        const filesToAdd = Array.from(hiddenInput.files).filter(file => {
+          const problem = uploadProblem(file);
+          if (problem) rejected.push(`"${file.name}" is ${problem}`);
+          return !problem;
+        }).slice(0, Math.max(remaining, 0));
+        if (rejected.length) {
+          setError('form-error', 'Not added: ' + rejected.join('; ') + '.');
+          document.getElementById('form-error').scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
         filesToAdd.forEach(file => {
           const objectUrl = file.type && file.type.startsWith('image/') ? URL.createObjectURL(file) : null;
           state.newFiles.push({ file, objectUrl });
@@ -975,7 +1004,7 @@ document.getElementById('rsvp-form').addEventListener('submit', async (e) => {
     const docSlotPayload = {};
     for (const [slotName, state] of Object.entries(slots)) {
       docSlotPayload[slotName] = {
-        existingUrls: state.existingFiles.map(f => f.url),
+        existingIds: state.existingFiles.map(f => f.id),
         newFiles: state.newFiles.map(f => f.file)
       };
     }
@@ -998,7 +1027,7 @@ document.getElementById('rsvp-form').addEventListener('submit', async (e) => {
     for (const guest of guestsPayload) {
       const encodedSlots = {};
       for (const [slotName, slot] of Object.entries(guest.docSlots)) {
-        encodedSlots[slotName] = { existingUrls: slot.existingUrls, newFiles: [] };
+        encodedSlots[slotName] = { existingIds: slot.existingIds, newFiles: [] };
         for (const file of slot.newFiles) {
           const base64 = await fileToBase64(file);
           encodedSlots[slotName].newFiles.push({
@@ -1013,7 +1042,7 @@ document.getElementById('rsvp-form').addEventListener('submit', async (e) => {
 
     const res = await fetch(API_URL, {
       method: 'POST',
-      body: JSON.stringify({ uid: currentParty.uid, guests: guestsPayload })
+      body: JSON.stringify({ action: 'submit', uid: currentParty.uid, guests: guestsPayload })
     });
     const data = await res.json();
 

@@ -88,6 +88,22 @@
  *  link) — the leader can remove any of them (which deletes that file from
  *  Drive on the next submit) or add new ones alongside the existing ones.
  *
+ * SECURITY NOTES:
+ *  - Uploaded files are PRIVATE: they are never link-shared, so only you (the
+ *    Drive owner) and anyone you explicitly share the folder with can open them.
+ *    The Drive links stored in the sheet therefore only work for those people.
+ *    Files uploaded by an EARLIER version of this script were link-shared; run
+ *    RSVP > Make existing uploads private once to lock those down.
+ *  - The browser never receives Drive URLs — only a file ID + filename for each
+ *    stored file. On submit the browser sends back only the IDs it wants to
+ *    keep, and those are matched against what THAT party's row already holds;
+ *    anything else is ignored, so a request can never trash another file.
+ *  - Every upload is checked on the server (real file signature, allow-listed
+ *    type, size cap) BEFORE anything is written. Text going into the sheet is
+ *    length-capped and neutralised so it can't be run as a spreadsheet formula.
+ *  - Guest lookups and submissions are POST requests, so the UID never appears
+ *    in a URL. Internal error details are logged, not sent to the browser.
+ *
  * EVENT DATE/TIME — your sheet doesn't store these, so set them here:
  */
 const EVENT_INFO = {
@@ -104,26 +120,28 @@ const SHEET_NAME = 'Sheet1'; // change if your tab is named differently
 const UPLOAD_FOLDER_NAME = 'RSVP Uploads - Han Seng & Tanaaz';
 const UID_LENGTH = 10;
 const UID_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // 32 chars; no I/O/0/1 so codes are easy to read out. 32^10 ≈ 1.1e15 combinations.
+const MAX_FILE_BYTES = 10 * 1024 * 1024; // per uploaded file, measured after decoding (keep in sync with MAX_FILE_BYTES in app.js)
+const MAX_TEXT_LENGTH = 200;             // cap on every free-text value written to the sheet
+const ALLOWED_UPLOAD_TYPES = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/heic': 'heic', 'application/pdf': 'pdf' };
+const GENERIC_ERROR = 'Something went wrong on our side. Please try again, or contact Han Seng or Tanaaz.';
 const MAX_FILES_PER_SLOT = 5; // per document type (Passport / Visa / OCI / Aadhar Card), matches the form's limit
 
+/** GET is no longer used for anything: guest lookups carry the UID, so they are
+ *  POST requests (a GET would put the UID in the URL, browser history and logs). */
 function doGet(e) {
-  try {
-    const action = e.parameter.action;
-    if (action === 'getParty') {
-      return jsonResponse(getPartyByUid(e.parameter.uid));
-    }
-    return jsonResponse({ error: 'Unknown action' });
-  } catch (err) {
-    return jsonResponse({ error: err.message });
-  }
+  return jsonResponse({ error: 'Unknown action' });
 }
 
 function doPost(e) {
   try {
     const body = JSON.parse(e.postData.contents);
-    return jsonResponse(submitRsvp(body));
+    if (body.action === 'getParty') return jsonResponse(getPartyByUid(body.uid));
+    if (body.action === 'submit')   return jsonResponse(submitRsvp(body));
+    return jsonResponse({ error: 'Unknown action' });
   } catch (err) {
-    return jsonResponse({ error: err.message });
+    // Details go to the Apps Script execution log, never to the browser.
+    console.error(err && err.stack ? err.stack : err);
+    return jsonResponse({ error: GENERIC_ERROR });
   }
 }
 
@@ -204,6 +222,22 @@ function partyFlagIsSet(partyRows, headers, colName) {
   });
 }
 
+/** Soft brute-force brake: counts recent failed lookups (shared across all
+ *  visitors, ~10 min window) and, once there are more than a handful, makes each
+ *  further failure wait a little longer. It never locks anyone out, so a
+ *  stranger can't use it to block your real guests. With 32^10 possible codes,
+ *  guessing isn't realistic anyway — this just removes any incentive to try. */
+function slowDownAfterFailedLookups_() {
+  try {
+    const cache = CacheService.getScriptCache();
+    const n = Number(cache.get('uidFails') || 0) + 1;
+    cache.put('uidFails', String(n), 600);
+    if (n > 10) Utilities.sleep(Math.min((n - 10) * 150, 3000));
+  } catch (err) {
+    console.error(err);
+  }
+}
+
 /** Look up the typed UID and return every member of that party plus the
  *  party's invited events. The UID is the only credential: anyone holding it
  *  may fill in the form for the whole party. */
@@ -213,16 +247,19 @@ function getPartyByUid(typedUid) {
 
   // Wrong-format and unknown codes get the same message, so nothing about the
   // code format or the guest list leaks.
-  const notFound = {
-    status: 'not_found',
-    error: 'We could not find that invitation code. Please check it and try again, or contact Han Seng or Tanaaz.'
+  const notFound = () => {
+    slowDownAfterFailedLookups_();
+    return {
+      status: 'not_found',
+      error: 'We could not find that invitation code. Please check it and try again, or contact Han Seng or Tanaaz.'
+    };
   };
-  if (!isValidUidFormat(uid)) return notFound;
+  if (!isValidUidFormat(uid)) return notFound();
 
   const sheet = getSheet();
   const headers = getHeaders(sheet);
   const partyRows = findRowsByUid(sheet, headers, uid);
-  if (!partyRows.length) return notFound;
+  if (!partyRows.length) return notFound();
 
   const nameCol = colIndex(headers, 'Name');
   const pocCol = colIndex(headers, 'POC');
@@ -285,9 +322,16 @@ function buildSavedData(rowData, headers, invitedEvents) {
 
   // Return each document slot as an array so the form can show every
   // existing file (filename + ✕) for that slot, not just the first one.
+  // Only { id, fileName } goes to the browser — never the Drive URL. (Files are
+  // private anyway; this just means no link leaves the server.) Cell lines that
+  // aren't a real Drive file link (e.g. a failed upload marker) are left out.
   const makeSlot = colName => {
-    const links = getLinksFromCell(rawGet(colName));
-    return links.map(url => ({ url: url, fileName: getFileNameFromUrl(url) }));
+    const out = [];
+    getLinksFromCell(rawGet(colName)).forEach(url => {
+      const id = extractDriveFileId(url);
+      if (id) out.push({ id: id, fileName: getFileNameFromUrl(url) });
+    });
+    return out;
   };
 
   return {
@@ -318,8 +362,8 @@ function buildSavedData(rowData, headers, invitedEvents) {
  *       travellingOverseas,    // "Yes" or "No"
  *       arrivalFlightNumber, arrivalDate, arrivalTime, arrivalAirport,  // only present/used if travellingOverseas === "Yes"
  *       attendance: { "Mehndi": "Yes", "Haldi": "No" },   // only invited events
- *       existingFiles: ["https://drive.google.com/...", ...],  // previously uploaded links the user chose to KEEP
- *       files: [{ name, mimeType, base64 }, ...]          // newly added files (any number)
+ *       docSlots: { "Passport": { existingIds: ["<Drive file id>", ...],   // stored files the user chose to KEEP
+ *                                 newFiles: [{ name, base64 }, ...] } }   // newly added files
  *     }, ...
  *   ]
  * }
@@ -335,6 +379,11 @@ function submitRsvp(payload) {
   if (!isValidUidFormat(uid)) {
     return { error: 'Your invitation code is missing or invalid. Please return to the homepage and enter it again.' };
   }
+
+  // Check every uploaded file BEFORE writing anything, so a bad file can't
+  // leave the sheet half-updated. On success each file object gains _bytes/_type.
+  const uploadError = validateUploads(payload);
+  if (uploadError) return { error: uploadError };
 
   const sheet = getSheet();
   let headers = getHeaders(sheet);
@@ -357,6 +406,8 @@ function submitRsvp(payload) {
     return { error: 'We could not verify your invitation code. Please return to the homepage and enter it again.' };
   }
   const pickupRequired = partyFlagIsSet(partyRows, headers, 'Pickup');
+  // Only events this party is actually invited to can be written to.
+  const invitedEventNames = EVENT_COLUMNS.filter(name => partyFlagIsSet(partyRows, headers, name));
 
   payload.guests.forEach(guest => {
     // Only rows inside this UID's party can be written to — a name that
@@ -366,9 +417,9 @@ function submitRsvp(payload) {
     if (!match) return;
     const rowNum = match.rowNum;
 
-    writeCell(sheet, headers, rowNum, 'Full Name', guest.fullName || '');
-    writeCell(sheet, headers, rowNum, 'Phone Number', guest.phone || '');
-    writeCell(sheet, headers, rowNum, 'Local Indian', guest.localIndian || '');
+    writeCell(sheet, headers, rowNum, 'Full Name', cleanText(guest.fullName));
+    writeCell(sheet, headers, rowNum, 'Phone Number', cleanText(guest.phone, 40));
+    writeCell(sheet, headers, rowNum, 'Local Indian', yesNo(guest.localIndian));
 
     // "Pickup" gates the whole overseas/arrival block. It comes from the
     // sheet (via the verified UID's party), never from the payload, so the
@@ -377,25 +428,30 @@ function submitRsvp(payload) {
     const isDomestic = pickupRequired && !isOverseas && String(guest.travellingDomestically || '').trim().toLowerCase() === 'yes';
     writeCell(sheet, headers, rowNum, 'Travelling from Overseas', pickupRequired ? (isOverseas ? 'Yes' : 'No') : '');
     writeCell(sheet, headers, rowNum, 'Travelling Domestically', pickupRequired ? (isDomestic ? 'Yes' : 'No') : '');
-    writeCell(sheet, headers, rowNum, 'Arrival Flight Number', isOverseas ? (guest.arrivalFlightNumber || '') : '');
-    writeCell(sheet, headers, rowNum, 'Arrival Travel Date', isOverseas ? (guest.arrivalDate || '') : '');
-    writeCell(sheet, headers, rowNum, 'Arrival Travel Time', isOverseas ? (guest.arrivalTime || '') : '');
-    writeCell(sheet, headers, rowNum, 'Arrival Airport', isOverseas ? (guest.arrivalAirport || '') : '');
+    writeCell(sheet, headers, rowNum, 'Arrival Flight Number', isOverseas ? cleanText(guest.arrivalFlightNumber, 20) : '');
+    writeCell(sheet, headers, rowNum, 'Arrival Travel Date', isOverseas ? cleanText(guest.arrivalDate, 20) : '');
+    writeCell(sheet, headers, rowNum, 'Arrival Travel Time', isOverseas ? cleanText(guest.arrivalTime, 20) : '');
+    writeCell(sheet, headers, rowNum, 'Arrival Airport', isOverseas ? cleanText(guest.arrivalAirport) : '');
 
     // Attendance per event -> auto-created "<Event> - Attending" columns
-    Object.keys(guest.attendance || {}).forEach(eventName => {
-      const col = ensureColumn(sheet, headers, `${eventName} - Attending`);
-      sheet.getRange(rowNum, col + 1).setValue(guest.attendance[eventName]);
+    // Event names come from the sheet (never from the browser) and values must be
+    // exactly Yes/No, so nothing the browser sends can create columns or odd values.
+    invitedEventNames.forEach(eventName => {
+      const sent = guest.attendance && Object.prototype.hasOwnProperty.call(guest.attendance, eventName)
+        ? String(guest.attendance[eventName]).trim().toLowerCase() : '';
+      if (sent !== 'yes' && sent !== 'no') return;
+      writeCell(sheet, headers, rowNum, `${eventName} - Attending`, sent === 'yes' ? 'Yes' : 'No');
     });
 
     // Document slots: Passport, Visa / OCI, Aadhar Card — each can now hold
     // up to MAX_FILES_PER_SLOT files. Each slot type gets its own Drive
     // subfolder inside the guest's personal folder (e.g. .../Guest Name/Passport/).
-    // Kept existing files (by URL) are left untouched; any previously stored
-    // file whose URL is no longer in the kept list was removed by the user
+    // Kept existing files (by Drive file ID) are left untouched; any previously stored
+    // file whose ID is no longer in the kept list was removed by the user
     // and gets trashed. New files are uploaded into that slot's subfolder.
     // The cell stores one URL per line, in existing-then-new order.
-    const personFolder = getOrCreatePersonFolder(folder, guest.name);
+    // Folder is named from the sheet's own "Name" value, not whatever the browser sent.
+    const personFolder = getOrCreatePersonFolder(folder, String(match.rowData[colIndex(headers, 'Name')]).trim());
     const DOC_SLOTS = ['Passport', 'Visa / OCI', 'Aadhar Card'];
     const isLocalIndian = String(guest.localIndian || '').trim().toLowerCase() === 'yes';
     // Slots that don't apply to this guest's current identity type are always
@@ -419,34 +475,48 @@ function submitRsvp(payload) {
       }
 
       const slot = (guest.docSlots || {})[slotName] || {};
-      const keptUrls = Array.isArray(slot.existingUrls) ? slot.existingUrls.filter(Boolean) : [];
+
+      // The browser only says WHICH stored files to keep, by file ID. Those IDs
+      // are matched against what THIS row already has in the sheet, so a made-up
+      // or foreign ID is simply ignored — and only files already stored in this
+      // row can ever be trashed. Stored files not listed as kept were removed by
+      // the user and are trashed.
+      const keptIds = Array.isArray(slot.existingIds) ? slot.existingIds.map(String) : [];
+      const prevUrls = getLinksFromCell(getPreviousSlotUrl(match.rowData, headers, slotName));
+      const keptUrls = [];
+      prevUrls.forEach(prevUrl => {
+        const id = extractDriveFileId(prevUrl);
+        if (!id) return; // not a real Drive link (e.g. an old failed-upload marker): drop it
+        if (keptIds.indexOf(id) !== -1) {
+          keptUrls.push(prevUrl);
+        } else {
+          try { DriveApp.getFileById(id).setTrashed(true); } catch (e) {}
+        }
+      });
+
       let newFilesData = Array.isArray(slot.newFiles) ? slot.newFiles : [];
       // Server-side safety net matching the form's MAX_FILES_PER_SLOT cap
       const remainingSlots = Math.max(MAX_FILES_PER_SLOT - keptUrls.length, 0);
       newFilesData = newFilesData.slice(0, remainingSlots);
 
-      // Trash any previously stored file for this slot that the user removed
-      const prevUrls = getLinksFromCell(getPreviousSlotUrl(match.rowData, headers, slotName));
-      prevUrls.forEach(prevUrl => {
-        if (keptUrls.indexOf(prevUrl) === -1) {
-          const id = extractDriveFileId(prevUrl);
-          if (id) { try { DriveApp.getFileById(id).setTrashed(true); } catch (e) {} }
-        }
-      });
-
       const finalUrls = keptUrls.slice();
       if (newFilesData.length) {
         const slotFolder = getOrCreateSlotFolder(personFolder, slotName);
         newFilesData.forEach(newFileData => {
-          if (!newFileData || !newFileData.base64) return;
+          if (!newFileData || !newFileData._bytes) return; // set by validateUploads()
           try {
-            const decoded = Utilities.base64Decode(newFileData.base64);
-            const blob = Utilities.newBlob(decoded, newFileData.mimeType, newFileData.name);
+            // Name and type come from the file's REAL content (validateUploads), not the browser's claim.
+            const stem = cleanFileName(newFileData.name).replace(/\.[^.]*$/, '') || 'upload';
+            const fileName = stem + '.' + ALLOWED_UPLOAD_TYPES[newFileData._type];
+            const blob = Utilities.newBlob(newFileData._bytes, newFileData._type, fileName);
             const driveFile = slotFolder.createFile(blob);
-            driveFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+            // Files stay PRIVATE. (Previously this was ANYONE_WITH_LINK.) Set
+            // explicitly so a file can't inherit link-sharing from its folder.
+            try { driveFile.setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.NONE); } catch (shareErr) { console.error(shareErr); }
             finalUrls.push(driveFile.getUrl());
           } catch (fileErr) {
-            finalUrls.push('UPLOAD FAILED: ' + (newFileData.name || slotName));
+            console.error(fileErr);
+            finalUrls.push('UPLOAD FAILED: ' + slotName);
           }
         });
       }
@@ -466,13 +536,91 @@ function submitRsvp(payload) {
 
 function writeCell(sheet, headers, rowNum, colName, value) {
   const col = ensureColumn(sheet, headers, colName);
-  sheet.getRange(rowNum, col + 1).setValue(value);
+  const cell = sheet.getRange(rowNum, col + 1);
+  const text = value == null ? '' : String(value);
+  // Anything that could be read as a formula (=, +, -, @ at the start) is stored
+  // as plain TEXT instead, so guest-typed input can never run as a spreadsheet
+  // formula (e.g. =IMPORTXML(...)). Also stops a phone number's leading "+" being lost.
+  if (/^[=+\-@]/.test(text)) cell.setNumberFormat('@');
+  cell.setValue(text);
 }
 
-/** Pulls a Drive file ID out of a typical Drive share URL. */
+/** Free text from the browser: control characters/newlines removed, trimmed, length-capped. */
+function cleanText(value, maxLen) {
+  return String(value == null ? '' : value)
+    .replace(/[\u0000-\u001F\u007F]/g, ' ')
+    .trim()
+    .slice(0, maxLen || MAX_TEXT_LENGTH);
+}
+
+function yesNo(value) {
+  return String(value == null ? '' : value).trim().toLowerCase() === 'yes' ? 'Yes' : 'No';
+}
+
+/** A safe display/storage file name: no paths, only simple characters, max 80 chars. */
+function cleanFileName(name) {
+  const base = String(name == null ? '' : name).split(/[\\/]/).pop()
+    .replace(/[^\w.\- ()]/g, '_').trim().slice(0, 80);
+  return base || 'upload';
+}
+
+/** Works out what a file REALLY is from its first bytes (the browser's claimed
+ *  type and the file extension are ignored). Returns a key of
+ *  ALLOWED_UPLOAD_TYPES, or null if it isn't an allowed type. */
+function sniffUploadType(bytes) {
+  if (!bytes || bytes.length < 12) return null;
+  const b = i => bytes[i] & 0xFF; // Apps Script bytes are signed
+  const ascii = (start, len) => {
+    let s = '';
+    for (let i = start; i < start + len; i++) s += String.fromCharCode(b(i));
+    return s;
+  };
+  if (b(0) === 0xFF && b(1) === 0xD8 && b(2) === 0xFF) return 'image/jpeg';
+  if (b(0) === 0x89 && ascii(1, 3) === 'PNG') return 'image/png';
+  if (ascii(0, 4) === '%PDF') return 'application/pdf';
+  if (ascii(0, 4) === 'RIFF' && ascii(8, 4) === 'WEBP') return 'image/webp';
+  if (ascii(4, 4) === 'ftyp' &&
+      ['heic', 'heix', 'hevc', 'hevx', 'heim', 'heis', 'mif1', 'msf1'].indexOf(ascii(8, 4)) !== -1) return 'image/heic';
+  return null;
+}
+
+/** Decodes and checks every newly uploaded file in the payload. Returns an
+ *  error message for the guest, or null if all files are fine. */
+function validateUploads(payload) {
+  const slotNames = ['Passport', 'Visa / OCI', 'Aadhar Card'];
+  for (const guest of payload.guests) {
+    const slots = (guest && guest.docSlots) || {};
+    for (const slotName of slotNames) {
+      const slot = slots[slotName];
+      if (!slot || !Array.isArray(slot.newFiles)) continue;
+      for (const f of slot.newFiles) {
+        if (!f || !f.base64) continue;
+        const label = cleanFileName(f.name);
+        let bytes;
+        try { bytes = Utilities.base64Decode(String(f.base64)); }
+        catch (err) { return '"' + label + '" could not be read. Please remove it and add it again.'; }
+        if (bytes.length > MAX_FILE_BYTES) {
+          return '"' + label + '" is larger than ' + Math.round(MAX_FILE_BYTES / 1048576) + ' MB. Please upload a smaller file.';
+        }
+        const type = sniffUploadType(bytes);
+        if (!type) {
+          return '"' + label + '" is not a supported file type. Please upload a JPG, PNG, WebP, HEIC or PDF.';
+        }
+        f._bytes = bytes;
+        f._type = type;
+        f.base64 = null; // free memory; the decoded bytes are what get saved
+      }
+    }
+  }
+  return null;
+}
+
+/** Pulls the file ID out of a Drive file URL as produced by file.getUrl().
+ *  Deliberately strict: any other text (e.g. a failed-upload marker that
+ *  happens to contain a long word) must never be treated as a file ID. */
 function extractDriveFileId(url) {
-  const match = String(url || '').match(/[-\w]{25,}/);
-  return match ? match[0] : null;
+  const match = String(url || '').trim().match(/^https:\/\/drive\.google\.com\/file\/d\/([-\w]{25,})(?:[\/?#]|$)/);
+  return match ? match[1] : null;
 }
 
 /** Best-effort filename lookup for a stored Drive link; falls back gracefully. */
@@ -542,6 +690,7 @@ function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('RSVP')
     .addItem('Generate missing UIDs', 'generateMissingUids')
+    .addItem('Make existing uploads private', 'makeExistingUploadsPrivate')
     .addToUi();
 }
 
@@ -615,4 +764,32 @@ function generateMissingUids() {
 
   uidRange.setValues(out);
   SpreadsheetApp.getActiveSpreadsheet().toast(created + ' new UID(s) created.', 'RSVP', 5);
+}
+
+// ============================================================
+// One-time clean-up for files uploaded by the earlier version
+// ============================================================
+
+/**
+ * Earlier versions made every uploaded file "anyone with the link can view".
+ * This switches every file (and folder) under the upload folder back to
+ * PRIVATE. Run it once after deploying this version; it is safe to re-run.
+ * It does not remove people you have shared the folder with by email.
+ */
+function makeExistingUploadsPrivate() {
+  const root = getOrCreateUploadFolder();
+  let fileCount = 0;
+  const lock = target => {
+    try { target.setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.NONE); return true; }
+    catch (err) { console.error(err); return false; }
+  };
+  const walk = folder => {
+    lock(folder);
+    const files = folder.getFiles();
+    while (files.hasNext()) { if (lock(files.next())) fileCount++; }
+    const subfolders = folder.getFolders();
+    while (subfolders.hasNext()) walk(subfolders.next());
+  };
+  walk(root);
+  SpreadsheetApp.getActiveSpreadsheet().toast(fileCount + ' file(s) set to private.', 'RSVP', 5);
 }

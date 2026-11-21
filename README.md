@@ -42,6 +42,8 @@ The script will also **automatically add** one column per event the first time a
 
 > **Upload folders use the `Name` column**, not `Full Name` — so if someone updates their passport-name spelling later, their files stay in the same folder instead of creating a new orphaned one.
 
+> Uploaded verification photos are **private** — never link-shared. Only you (the Drive owner) and anyone you share the folder with can open them, so the Drive links in the sheet only work for those people. Accepted types: JPG, PNG, WebP, HEIC, PDF; max 10 MB per file (checked in the browser and again on the server using the file's real contents).
+
 > Verification photos are saved into Drive under a folder named "RSVP Uploads - Han Seng & Tanaaz", with a **separate subfolder for each guest** (named after their full name) inside it — so every person's photos stay together and are easy to find.
 
 > On the form itself, guests can add photos in multiple batches (it doesn't replace previously added ones), see a small thumbnail preview of each, and remove any individual one with the ✕ button before submitting.
@@ -79,7 +81,7 @@ const API_URL = "https://script.google.com/macros/s/AKfycb.../exec";
 ## 5. Publish on GitHub Pages
 
 1. New GitHub repo, e.g. `rsvp-hanseng-tanaaz`.
-2. Push the contents of `site/` (`index.html`, `style.css`, `app.js`, `config.js`) to the repo **root**.
+2. Push the contents of `site/` (`index.html`, `style.css`, `app.js`, `config.js`, plus the `vendor/` and `data/` folders) to the repo **root**. Everything the page needs is served from your own repo — the only external request is Google Fonts.
 3. Repo → **Settings → Pages** → Source: branch `main`, folder `/ (root)`.
 4. Live at `https://<your-username>.github.io/rsvp-hanseng-tanaaz/`.
 
@@ -94,6 +96,16 @@ const API_URL = "https://script.google.com/macros/s/AKfycb.../exec";
 5. They fill in, for **every person in the party**: full name (passport name, with phone), Yes/No for each event, and verification photos (any number). If the party's internal **Pickup** flag is ticked, they also see a "Travelling from overseas" tickbox (reveals arrival flight number/date/time/airport only if ticked); if Pickup isn't ticked, that whole section is hidden and skipped entirely.
 6. On submit, the script writes straight back into each person's own row — no new rows created.
 7. Thank-you screen, with a note to contact Han Seng/Tanaaz directly for travel changes.
+
+## Security notes
+
+- **Deploying the update:** after pasting the new `Code.gs`, **Deploy → Manage deployments → ✏️ → New version**. Then run **RSVP → Make existing uploads private** once, to lock down files uploaded by the earlier version (which were link-shared).
+- **No Drive links reach the browser** — only a file ID and filename per stored file. Submissions can only keep or remove files already stored for that party.
+- **Guest lookups use POST**, so the UID never appears in a URL, history or log. Repeated wrong codes are slowed down (never locked out).
+- **Sheet safety:** text from guests is length-capped, and anything that could be read as a formula is stored as plain text. Only events the party is invited to can be written to.
+- **Self-hosted dependencies:** the phone-number library lives in `vendor/intl-tel-input/` (MIT licence included) and the airport list in `data/airports.json`, so no third-party script runs on the page. Google Fonts is still loaded from Google (stylesheet only).
+- **Housekeeping:** don't commit real UIDs; after the wedding, delete the upload folder and the ID columns, and empty Drive's trash (trashed files linger ~30 days).
+- Because these are identity documents (passport, visa/OCI, Aadhaar), check the data-protection rules that apply to you and your guests.
 
 ## Before sending the link out
 
