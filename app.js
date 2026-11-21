@@ -1,5 +1,5 @@
 // ---------- State ----------
-let currentParty = null; // { matchedName, guests: [{ name, invitedEvents: [{name, dateTime}] }] }
+let currentParty = null; // { uid, matchedName, guests: [{ name, invitedEvents: [{name, dateTime}] }] }
 let airportsCache = null; // loaded once on first form render
 const MAX_FILES_PER_SLOT = 5;
 
@@ -107,11 +107,16 @@ document.getElementById('name-input').addEventListener('keydown', e => {
 
 async function findParty() {
   const nameInput = document.getElementById('name-input');
-  const name = nameInput.value.trim();
+  // Spaces are stripped and letters uppercased so "k7m2 qx9t pd" still works.
+  const uid = nameInput.value.replace(/\s+/g, '').toUpperCase();
   setError('welcome-error', '');
 
-  if (!name) {
-    setError('welcome-error', 'Please type your name to continue.');
+  if (!uid) {
+    setError('welcome-error', 'Please enter your invitation code to continue.');
+    return;
+  }
+  if (!/^[A-Z0-9]{10}$/.test(uid)) {
+    setError('welcome-error', 'Your invitation code is 10 letters and numbers. Please check it and try again.');
     return;
   }
   if (!API_URL || API_URL.includes('PASTE_YOUR')) {
@@ -124,7 +129,7 @@ async function findParty() {
   btn.textContent = 'Searching…';
 
   try {
-    const res = await fetch(`${API_URL}?action=getParty&name=${encodeURIComponent(name)}`);
+    const res = await fetch(`${API_URL}?action=getParty&uid=${encodeURIComponent(uid)}`);
     const data = await res.json();
 
     if (data.status === 'not_leader') {
@@ -134,11 +139,12 @@ async function findParty() {
     }
 
     if (data.status !== 'ok') {
-      setError('welcome-error', data.error || 'We could not find that name on the guest list. Please check the spelling or contact Han Seng or Tanaaz.');
+      setError('welcome-error', data.error || 'We could not find that invitation code. Please check it or contact Han Seng or Tanaaz.');
       return;
     }
 
     currentParty = data;
+    currentParty.uid = uid; // sent back with the submission so the server can re-verify it
     document.getElementById('form-name').textContent = data.matchedName;
     renderPartyMembers(data.guests, data.matchedName);
     renderEvents(data.guests);
@@ -1007,7 +1013,7 @@ document.getElementById('rsvp-form').addEventListener('submit', async (e) => {
 
     const res = await fetch(API_URL, {
       method: 'POST',
-      body: JSON.stringify({ guests: guestsPayload })
+      body: JSON.stringify({ uid: currentParty.uid, guests: guestsPayload })
     });
     const data = await res.json();
 

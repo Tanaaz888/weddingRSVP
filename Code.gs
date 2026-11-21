@@ -4,18 +4,24 @@
  * YOUR SHEET (tab name set in SHEET_NAME below) — ONE ROW PER PERSON:
  *
  *  Readable (you pre-fill these before sharing the site):
- *    Name | Party name | POC | Pickup | Mehndi | Haldi | Sangeet | Vidhi | Tea ceremony | Dinner
+ *    UID | Name | Party name | POC | Pickup | Mehndi | Haldi | Sangeet | Vidhi | Tea ceremony | Dinner
  *
+ *    - "UID": the party's 10-character alphanumeric LOGIN CODE (e.g. "K7M2QX9TPD").
+ *      It is the ONLY thing a guest types on the site. Put the exact same UID
+ *      on every row in the party. Whoever you give the code to can open and
+ *      submit the form for the whole party. Names are no longer used for login.
+ *      Don't type these by hand — run  RSVP > Generate missing UIDs  (or run
+ *      generateMissingUids() from the editor). It creates the UID column at the
+ *      far left if it's missing, and gives every party one unique code.
+ *      The UID column is formatted as plain text so Sheets can't mangle codes
+ *      that look like numbers (e.g. leading zeros, or "12E4567890").
  *    - "Name": that row's person, exactly as they'll type it on the site.
- *    - "Party name": a SHARED label/ID for the group — put the exact same
- *      value on every row that belongs to the same party (e.g. "Mehta
- *      Family" on every row for that family). This is NOT a list of names
- *      anymore — everyone with the same Party name is grouped together.
- *    - "POC": the name of the party leader for that party — put the SAME
- *      value (the leader's exact Name) on every row in that party. ONLY the
- *      person whose own Name matches the POC value can open the RSVP form
- *      and fill it in for the whole party. Everyone else in the party who
- *      tries gets redirected to a "please ask your party leader" page.
+ *    - "Party name": a shared human-readable label for the group (e.g. "Mehta
+ *      Family"). Parties are now grouped by UID, not by this label; it is only
+ *      used by generateMissingUids() to decide which rows share one UID.
+ *    - "POC": the name of the party leader — put the SAME value on every row
+ *      in that party. It is informational only now (shown as "Welcome, <POC>");
+ *      access is controlled purely by the UID.
  *    - "Pickup": INTERNAL ONLY — never shown on the website. Tick = TRUE
  *      (checkbox) or "Yes" if you need to collect overseas travel/arrival
  *      info for this party. It's a party-level flag, just like the event
@@ -96,13 +102,15 @@ const EVENT_INFO = {
 const EVENT_COLUMNS = ['Mehndi', 'Haldi', 'Sangeet', 'Vidhi', 'Tea ceremony', 'Dinner'];
 const SHEET_NAME = 'Sheet1'; // change if your tab is named differently
 const UPLOAD_FOLDER_NAME = 'RSVP Uploads - Han Seng & Tanaaz';
+const UID_LENGTH = 10;
+const UID_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // 32 chars; no I/O/0/1 so codes are easy to read out. 32^10 ≈ 1.1e15 combinations.
 const MAX_FILES_PER_SLOT = 5; // per document type (Passport / Visa / OCI / Aadhar Card), matches the form's limit
 
 function doGet(e) {
   try {
     const action = e.parameter.action;
     if (action === 'getParty') {
-      return jsonResponse(getPartyByName(e.parameter.name));
+      return jsonResponse(getPartyByUid(e.parameter.uid));
     }
     return jsonResponse({ error: 'Unknown action' });
   } catch (err) {
@@ -161,15 +169,23 @@ function findRowByName(sheet, headers, name) {
   return null;
 }
 
-/** Every row whose "Party name" matches (case/space-insensitive). */
-function findRowsByPartyName(sheet, headers, partyName) {
-  const partyCol = colIndex(headers, 'Party name');
-  if (partyCol === -1) throw new Error('Sheet is missing a "Party name" column.');
+/** UIDs are compared trimmed and case-insensitively (stored uppercase). */
+function normaliseUid(v) {
+  return String(v == null ? '' : v).trim().toUpperCase();
+}
+
+function isValidUidFormat(uid) {
+  return new RegExp('^[A-Z0-9]{' + UID_LENGTH + '}$').test(uid);
+}
+
+/** Every row whose "UID" matches — i.e. every member of that party. */
+function findRowsByUid(sheet, headers, uid) {
+  const uidCol = colIndex(headers, 'UID');
+  if (uidCol === -1) throw new Error('Sheet is missing a "UID" column.');
   const data = sheet.getDataRange().getValues();
-  const search = String(partyName).trim().toLowerCase();
   const rows = [];
   for (let r = 1; r < data.length; r++) {
-    if (String(data[r][partyCol]).trim().toLowerCase() === search) {
+    if (normaliseUid(data[r][uidCol]) === uid) {
       rows.push({ rowNum: r + 1, rowData: data[r] });
     }
   }
@@ -188,33 +204,31 @@ function partyFlagIsSet(partyRows, headers, colName) {
   });
 }
 
-/** Look up the typed name, find everyone sharing the same Party name, and
- *  check whether the typed name is that party's designated leader (POC). */
-function getPartyByName(typedName) {
-  if (!typedName) return { status: 'error', error: 'Please enter a name.' };
+/** Look up the typed UID and return every member of that party plus the
+ *  party's invited events. The UID is the only credential: anyone holding it
+ *  may fill in the form for the whole party. */
+function getPartyByUid(typedUid) {
+  const uid = normaliseUid(typedUid);
+  if (!uid) return { status: 'error', error: 'Please enter your invitation code.' };
+
+  // Wrong-format and unknown codes get the same message, so nothing about the
+  // code format or the guest list leaks.
+  const notFound = {
+    status: 'not_found',
+    error: 'We could not find that invitation code. Please check it and try again, or contact Han Seng or Tanaaz.'
+  };
+  if (!isValidUidFormat(uid)) return notFound;
 
   const sheet = getSheet();
   const headers = getHeaders(sheet);
-  const match = findRowByName(sheet, headers, typedName);
-
-  if (!match) {
-    return {
-      status: 'not_found',
-      error: 'We could not find that name on the guest list. Please check the spelling or contact Han Seng or Tanaaz.'
-    };
-  }
+  const partyRows = findRowsByUid(sheet, headers, uid);
+  if (!partyRows.length) return notFound;
 
   const nameCol = colIndex(headers, 'Name');
-  const partyCol = colIndex(headers, 'Party name');
   const pocCol = colIndex(headers, 'POC');
-  const ownName = String(match.rowData[nameCol]).trim();
-  const partyName = partyCol !== -1 ? String(match.rowData[partyCol] || '').trim() : '';
+  if (nameCol === -1) throw new Error('Sheet is missing a "Name" column.');
 
-  if (!partyName) {
-    return { status: 'error', error: 'Your party name is not set up yet. Please contact Han Seng or Tanaaz.' };
-  }
-
-  const partyRows = findRowsByPartyName(sheet, headers, partyName);
+  // Leader name is display-only now. Fall back to the first member if POC is blank.
   let leaderName = '';
   if (pocCol !== -1) {
     for (const r of partyRows) {
@@ -222,14 +236,7 @@ function getPartyByName(typedName) {
       if (v) { leaderName = v; break; }
     }
   }
-
-  if (!leaderName) {
-    return { status: 'error', error: 'Your party leader is not set up yet. Please contact Han Seng or Tanaaz.' };
-  }
-
-  if (ownName.toLowerCase() !== leaderName.toLowerCase()) {
-    return { status: 'not_leader', leaderName: leaderName };
-  }
+  if (!leaderName) leaderName = String(partyRows[0].rowData[nameCol]).trim();
 
   // Event invites are at the PARTY level — union the tickboxes across every row in the party.
   const invitedEvents = EVENT_COLUMNS.filter(eventName => partyFlagIsSet(partyRows, headers, eventName))
@@ -246,11 +253,7 @@ function getPartyByName(typedName) {
     savedData: buildSavedData(r.rowData, headers, invitedEvents)
   }));
 
-  if (!guests.length) {
-    return { status: 'error', error: 'We found your name, but could not resolve your party. Please contact Han Seng or Tanaaz.' };
-  }
-
-  return { status: 'ok', matchedName: ownName, guests: guests, pickupRequired: pickupRequired };
+  return { status: 'ok', matchedName: leaderName, guests: guests, pickupRequired: pickupRequired };
 }
 
 /** Whatever's already in this guest's row, shaped for the form to pre-fill with. */
@@ -307,6 +310,7 @@ function buildSavedData(rowData, headers, invitedEvents) {
 /**
  * Expected payload:
  * {
+ *   uid,                     // the party's UID — re-verified here; every guest.name must belong to this party
  *   guests: [
  *     {
  *       name,                  // must match the "Name" column exactly (as returned by getParty)
@@ -325,6 +329,13 @@ function submitRsvp(payload) {
     return { error: 'No RSVP data received.' };
   }
 
+  // The UID is re-checked on every submit. Without a valid UID nothing is
+  // written, and (below) only rows belonging to THAT UID's party can be edited.
+  const uid = normaliseUid(payload.uid);
+  if (!isValidUidFormat(uid)) {
+    return { error: 'Your invitation code is missing or invalid. Please return to the homepage and enter it again.' };
+  }
+
   const sheet = getSheet();
   let headers = getHeaders(sheet);
   const folder = getOrCreateUploadFolder();
@@ -340,19 +351,28 @@ function submitRsvp(payload) {
     ensureColumn(sheet, headers, colName);
   });
 
+  // Read the party AFTER the columns above exist, so row data is full width.
+  const partyRows = findRowsByUid(sheet, headers, uid);
+  if (!partyRows.length) {
+    return { error: 'We could not verify your invitation code. Please return to the homepage and enter it again.' };
+  }
+  const pickupRequired = partyFlagIsSet(partyRows, headers, 'Pickup');
+
   payload.guests.forEach(guest => {
-    const match = findRowByName(sheet, headers, guest.name);
-    if (!match) return; // skip unknown guest rows defensively
+    // Only rows inside this UID's party can be written to — a name that
+    // belongs to any other party is silently skipped.
+    const guestKey = String(guest.name || '').trim().toLowerCase();
+    const match = partyRows.find(r => String(r.rowData[colIndex(headers, 'Name')]).trim().toLowerCase() === guestKey);
+    if (!match) return;
     const rowNum = match.rowNum;
 
     writeCell(sheet, headers, rowNum, 'Full Name', guest.fullName || '');
     writeCell(sheet, headers, rowNum, 'Phone Number', guest.phone || '');
     writeCell(sheet, headers, rowNum, 'Local Indian', guest.localIndian || '');
 
-    // "Pickup" gates the whole overseas/arrival block. This is re-checked
-    // here from the sheet itself (not trusted from the payload) so the
+    // "Pickup" gates the whole overseas/arrival block. It comes from the
+    // sheet (via the verified UID's party), never from the payload, so the
     // columns stay blank even if something odd came in from the browser.
-    const pickupRequired = isPickupRequiredForRow(sheet, headers, match.rowData);
     const isOverseas = pickupRequired && String(guest.travellingOverseas || '').trim().toLowerCase() === 'yes';
     const isDomestic = pickupRequired && !isOverseas && String(guest.travellingDomestically || '').trim().toLowerCase() === 'yes';
     writeCell(sheet, headers, rowNum, 'Travelling from Overseas', pickupRequired ? (isOverseas ? 'Yes' : 'No') : '');
@@ -479,18 +499,6 @@ function getLinksFromCell(cellValue) {
   return String(cellValue).split('\n').map(s => s.trim()).filter(Boolean);
 }
 
-/** Re-derives whether "Pickup" is set for the party that this specific row
- *  belongs to — used at submit time so the answer always comes fresh from
- *  the sheet itself, never from whatever the browser happened to send. */
-function isPickupRequiredForRow(sheet, headers, rowData) {
-  const partyCol = colIndex(headers, 'Party name');
-  if (partyCol === -1) return false;
-  const partyName = String(rowData[partyCol] || '').trim();
-  if (!partyName) return false;
-  const partyRows = findRowsByPartyName(sheet, headers, partyName);
-  return partyFlagIsSet(partyRows, headers, 'Pickup');
-}
-
 function getOrCreateUploadFolder() {
   const folders = DriveApp.getFoldersByName(UPLOAD_FOLDER_NAME);
   if (folders.hasNext()) return folders.next();
@@ -523,4 +531,88 @@ function trashSlotFolder(personFolder, slotName) {
   while (existing.hasNext()) {
     try { existing.next().setTrashed(true); } catch (e) {}
   }
+}
+
+// ============================================================
+// UID generation
+// ============================================================
+
+/** Adds an "RSVP" menu to the sheet. */
+function onOpen() {
+  SpreadsheetApp.getUi()
+    .createMenu('RSVP')
+    .addItem('Generate missing UIDs', 'generateMissingUids')
+    .addToUi();
+}
+
+/** One cryptographically-random UID character per call (256 % 32 == 0, so no modulo bias). */
+function randomUid_() {
+  let s = '';
+  for (let i = 0; i < UID_LENGTH; i++) {
+    const byte = parseInt(Utilities.getUuid().substring(0, 2), 16);
+    s += UID_ALPHABET.charAt(byte % UID_ALPHABET.length);
+  }
+  return s;
+}
+
+/**
+ * Gives every party one unique 10-character UID, written onto every row of
+ * that party. Safe to re-run: rows that already have a UID are never changed,
+ * and new rows with the same "Party name" as an existing party reuse its UID.
+ * Creates the "UID" column at the far left of the sheet if it doesn't exist.
+ * Rows with a blank "Party name" each get their own UID.
+ */
+function generateMissingUids() {
+  const sheet = getSheet();
+  let headers = getHeaders(sheet);
+
+  if (colIndex(headers, 'UID') === -1) {
+    sheet.insertColumnBefore(1);
+    sheet.getRange(1, 1).setValue('UID');
+    headers = getHeaders(sheet);
+  }
+  const uidCol = colIndex(headers, 'UID');
+  const partyCol = colIndex(headers, 'Party name');
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return;
+
+  // Plain-text format first, so Sheets never reinterprets a code as a number/date.
+  const uidRange = sheet.getRange(2, uidCol + 1, lastRow - 1, 1);
+  uidRange.setNumberFormat('@');
+
+  const data = sheet.getRange(1, 1, lastRow, sheet.getLastColumn()).getValues();
+  const used = {};      // every UID already in the sheet
+  const byParty = {};   // party label -> its UID
+  const partyKey = r => {
+    const p = partyCol === -1 ? '' : String(data[r][partyCol] || '').trim().toLowerCase();
+    return p ? 'party:' + p : 'row:' + r;
+  };
+
+  for (let r = 1; r < data.length; r++) {
+    const uid = normaliseUid(data[r][uidCol]);
+    if (uid) {
+      used[uid] = true;
+      if (!byParty[partyKey(r)]) byParty[partyKey(r)] = String(data[r][uidCol]).trim();
+    }
+  }
+
+  let created = 0;
+  const out = [];
+  for (let r = 1; r < data.length; r++) {
+    const existing = String(data[r][uidCol] || '').trim();
+    if (existing) { out.push([existing]); continue; }
+
+    const key = partyKey(r);
+    if (!byParty[key]) {
+      let fresh;
+      do { fresh = randomUid_(); } while (used[fresh]);
+      used[fresh] = true;
+      byParty[key] = fresh;
+      created++;
+    }
+    out.push([byParty[key]]);
+  }
+
+  uidRange.setValues(out);
+  SpreadsheetApp.getActiveSpreadsheet().toast(created + ' new UID(s) created.', 'RSVP', 5);
 }
