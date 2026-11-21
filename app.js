@@ -340,9 +340,6 @@ function renderGuestForms(guests, pickupRequired) {
         </div>
       </div>
 
-      <div class="domestic-note" style="display:${isDomesticSaved ? 'block' : 'none'};">
-        <p class="helper-text" style="margin:0;">We will follow up with you on more details!</p>
-      </div>
     ` : '';
 
     card.innerHTML = `
@@ -454,7 +451,6 @@ function renderGuestForms(guests, pickupRequired) {
       const guestCard = checkbox.closest('.guest-card');
       const overseasCheckbox = guestCard.querySelector('.overseas-checkbox');
       const fieldsWrap = guestCard.querySelector('.overseas-fields');
-      const note = guestCard.querySelector('.domestic-note');
 
       // Ticking "domestic" unticks "overseas" so only one can be selected
       if (checkbox.checked && overseasCheckbox && overseasCheckbox.checked) {
@@ -462,8 +458,8 @@ function renderGuestForms(guests, pickupRequired) {
         overseasCheckbox.dispatchEvent(new Event('change'));
       }
 
-      // Domestic travel skips arrival details entirely — replace them with
-      // a simple follow-up note instead.
+      // Domestic travel skips arrival details entirely — they're hidden and
+      // cleared, and nothing is shown in their place.
       if (fieldsWrap) {
         fieldsWrap.style.display = checkbox.checked ? 'none' : '';
         if (checkbox.checked) {
@@ -480,7 +476,6 @@ function renderGuestForms(guests, pickupRequired) {
           }
         }
       }
-      if (note) note.style.display = checkbox.checked ? 'block' : 'none';
     });
   });
 

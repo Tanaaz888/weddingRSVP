@@ -50,9 +50,9 @@
  *      the party's "Pickup" column is ticked. Ticking one greys out the
  *      other. The arrival flight fields are only filled in (and only
  *      required) if "Travelling from Overseas" is Yes. If "Travelling
- *      Domestically" is Yes instead, no arrival details are collected — the
- *      guest just sees a note that they'll be followed up with. If "Pickup"
- *      isn't ticked, all of these columns are left blank.
+ *      Domestically" is Yes instead, no arrival details are collected and the
+ *      arrival fields are simply hidden (nothing is shown in their place). If
+ *      "Pickup" isn't ticked, all of these columns are left blank.
  *
  *  On the FIRST submission to the sheet, the script auto-adds these columns
  *  right after "Arrival Airport", in this fixed order, all at once — so the
