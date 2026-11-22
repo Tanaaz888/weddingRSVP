@@ -674,7 +674,6 @@ select {
 @keyframes pulse { 0%, 100% { opacity: 0.3; } 50% { opacity: 1; } }
 
 @media (max-width: 600px) {
-  .card { padding: calc(var(--fs) * 2.5) calc(var(--fs) * 1.4); }
   .submit-bar { flex-wrap: wrap; }
   .submit-bar button { flex: 1 1 auto; padding-left: 16px; padding-right: 16px; }
   .attendance-row { flex-direction: column; align-items: flex-start; gap: 6px; }
@@ -796,4 +795,68 @@ textarea:focus { border-color: var(--gold); }
 
 @media (prefers-reduced-motion: reduce) {
   .bg-photo, .bg-corner, .bg-side-track { will-change: auto; }
+}
+
+/* ============================================================
+   Mobile / small screens
+   Below 900px the side flowers are switched off (SIDE_MIN_WIDTH in background.js), so there is no need to keep
+   wide empty margins beside the card: it uses the full screen width instead (capped at 640px on tablets).
+   This block is last in the file so that it overrides the earlier rules. If you change SIDE_MIN_WIDTH,
+   change the 899px here too.
+   ============================================================ */
+@media (max-width: 899px) {
+  html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; } /* stop iOS enlarging text in landscape */
+  .screen { padding: 20px 12px; min-height: 100vh; min-height: 100dvh; } /* dvh: accounts for the phone's address bar */
+  .card { width: 100%; max-width: 640px; }
+}
+
+@media (max-width: 600px) {
+  .card { padding: calc(var(--fs) * 2) calc(var(--fs) * 1.1); }
+  .card::before { top: 8px; left: 8px; right: 8px; bottom: 8px; }
+  h1.headline { overflow-wrap: anywhere; }
+  .knot { margin: 14px auto 20px; }
+  .knot .line { width: 32px; }
+  .subline { margin-bottom: 24px; }
+
+  /* Easier to tap */
+  .actions { align-items: stretch; }
+  .actions button, .submit-bar button, .add-files-btn { min-height: 44px; }
+  .checkbox-label { align-items: flex-start; gap: 12px; }
+  .checkbox-label input[type="checkbox"] { width: 22px; height: 22px; flex-shrink: 0; margin: 0; }
+  .existing-file-remove, .file-preview-remove { width: 28px; height: 28px; }
+  .file-preview-remove { top: -10px; right: -10px; }
+
+  /* Less padding inside the nested boxes, so the text keeps its width */
+  .guest-card { padding: 16px 14px; margin-bottom: 20px; }
+  .guest-card h2 { font-size: calc(var(--fs) * 1.375); margin-bottom: 16px; }
+  .party-members-block { padding: 14px; }
+  .overseas-fields, .doc-slot, .file-input-wrap { padding: 12px; }
+  .event-row { flex-wrap: wrap; column-gap: 12px; }
+
+  /* Photo previews: two per row, whatever the screen width */
+  .file-preview-item { width: calc(50% - 6px); }
+  .file-preview-thumb { width: 100%; height: auto; aspect-ratio: 1 / 1; }
+
+  /* Airport list: let long names wrap instead of being cut off with "..." */
+  .airport-option { padding: 12px 14px; }
+  .airport-label { white-space: normal; overflow-wrap: anywhere; }
+
+  /* Date and time fields were unstyled (small native boxes): make them match the other inputs */
+  input[type="date"], input[type="time"] {
+    display: block;
+    width: 100%;
+    min-height: 48px;
+    text-align: left;
+    font-family: 'Inter', sans-serif;
+    font-size: calc(var(--fs) * 1);
+    padding: 11px 16px;
+    border: 1px solid var(--line);
+    border-radius: 1px;
+    background: #fff;
+    color: var(--charcoal);
+  }
+  input[type="date"]:focus, input[type="time"]:focus { border-color: var(--gold); outline: none; }
+
+  /* 16px or larger stops iOS zooming the page when a field is focused */
+  .phone-wrap .iti__search-input { font-size: 16px; }
 }
