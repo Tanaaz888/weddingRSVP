@@ -116,6 +116,26 @@ function escapeHtml(str) {
   return div.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
+// ---------- Invitation links ----------
+// A guest can open https://<site>/#code=K7M2QX9TPD (or just /#K7M2QX9TPD, or /?code=K7M2QX9TPD)
+// and skip typing the code. The "#" form is preferred: browsers never send the part after "#"
+// to any server, so the code stays out of host logs and Referer headers.
+function getUidFromUrl() {
+  const hash = window.location.hash.replace(/^#/, '');
+  let raw = '';
+  if (hash) {
+    raw = hash.includes('=') ? (new URLSearchParams(hash).get('code') || '') : hash;
+  }
+  if (!raw) raw = new URLSearchParams(window.location.search).get('code') || '';
+  return raw.replace(/\s+/g, '').toUpperCase();
+}
+
+// Remove the code from the address bar so a refresh after "Back"/"Return" lands on the plain welcome page.
+function clearUidFromUrl() {
+  if (!window.location.hash && !window.location.search) return;
+  history.replaceState(null, '', window.location.pathname);
+}
+
 // ---------- Screen 1: Welcome / lookup ----------
 document.getElementById('find-party-btn').addEventListener('click', findParty);
 document.getElementById('name-input').addEventListener('keydown', e => {
@@ -180,10 +200,12 @@ async function findParty() {
 }
 
 document.getElementById('back-from-not-leader-btn').addEventListener('click', () => {
+  clearUidFromUrl();
   show('welcome-screen');
 });
 
 document.getElementById('form-back-btn').addEventListener('click', () => {
+  clearUidFromUrl();
   revokeCardObjectUrls();
   currentParty = null;
   document.getElementById('rsvp-form').reset();
@@ -194,6 +216,7 @@ document.getElementById('form-back-btn').addEventListener('click', () => {
 });
 
 document.getElementById('return-home-btn').addEventListener('click', () => {
+  clearUidFromUrl();
   revokeCardObjectUrls();
   currentParty = null;
   document.getElementById('name-input').value = '';
@@ -1126,3 +1149,13 @@ document.getElementById('rsvp-form').addEventListener('submit', async (e) => {
     submitBtn.textContent = 'Confirm RSVP';
   }
 });
+
+// ---------- Auto-open from an invitation link ----------
+// Runs last so every function above exists. If the link's code is wrong, the normal
+// error message appears with the code pre-filled so the guest can correct it.
+(function autoOpenFromLink() {
+  const uid = getUidFromUrl();
+  if (!uid) return;
+  document.getElementById('name-input').value = uid;
+  findParty();
+})();

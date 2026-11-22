@@ -138,9 +138,25 @@ Scroll speeds are at the top of `background.js` (`PHOTO_SPEED`, `CORNER_SPEED`);
 
 ---
 
+## One-click invitation links
+
+Instead of asking guests to type their code, send each party leader a link with the UID in it:
+
+```
+https://<your-username>.github.io/rsvp-hanseng-tanaaz/#code=K7M2QX9TPD
+```
+
+Opening it goes straight to that party's RSVP form. `#K7M2QX9TPD` and `?code=K7M2QX9TPD` also work, and a wrong or mistyped code shows the usual error with the code pre-filled. The typed-code box still works as before.
+
+To build the links in the sheet, put your site address in a spare cell and add a helper column, e.g. with the UID in column A and the site address (ending in `/`) in `Z1`:
+
+```
+=$Z$1 & "#code=" & A2
+```
+
 ## How a guest experiences it
 
-1. Types their party's 10-character UID.
+1. Opens their invitation link (or types their party's 10-character UID).
 2. If the code isn't recognised → told to check it or contact Han Seng or Tanaaz.
 3. If it's valid → they see their party's events (same for everyone in the party) and one RSVP block per person in the party.
 4. On submit, the UID is checked again by the script, and only rows belonging to that UID's party can be written to.
@@ -152,7 +168,7 @@ Scroll speeds are at the top of `background.js` (`PHOTO_SPEED`, `CORNER_SPEED`);
 
 - **Deploying the update:** after pasting the new `Code.gs`, **Deploy → Manage deployments → ✏️ → New version**. Then run **RSVP → Make existing uploads private** once, to lock down files uploaded by the earlier version (which were link-shared).
 - **No Drive links reach the browser** — only a file ID and filename per stored file. Submissions can only keep or remove files already stored for that party.
-- **Guest lookups use POST**, so the UID never appears in a URL, history or log. Repeated wrong codes are slowed down (never locked out).
+- **Guest lookups use POST**, so the UID is never sent to the script in a URL. Invitation links put the UID after a `#`, which browsers never send to any server (so it stays out of GitHub Pages logs and Referer headers); the site removes it from the address bar when a guest goes back or returns home. The trade-off: a link is a credential, so anyone who sees or forwards it can submit for that party, and it sits in the guest's browser history and chat/email. `?code=` links, if you use them, are visible to the host's logs. Repeated wrong codes are slowed down (never locked out).
 - **Sheet safety:** text from guests is length-capped, and anything that could be read as a formula is stored as plain text. Only events the party is invited to can be written to.
 - **Self-hosted dependencies:** the phone-number library lives in `vendor/intl-tel-input/` (MIT licence included) and the airport list in `data/airports.json`, so no third-party script runs on the page. Google Fonts is still loaded from Google (stylesheet only).
 - **Housekeeping:** don't commit real UIDs; after the wedding, delete the upload folder and the ID columns, and empty Drive's trash (trashed files linger ~30 days).
