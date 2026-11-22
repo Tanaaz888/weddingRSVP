@@ -352,7 +352,7 @@ function renderGuestForms(guests, pickupRequired) {
       <div class="pickup-wrap" style="${isOverseasSaved ? '' : 'display:none;'}">
         <label class="checkbox-label">
           <input type="checkbox" class="pickup-checkbox" ${isPickupSaved ? 'checked' : ''} />
-          I need airport pick-up arranged for me
+          I need airport pick-up arranged for me on the day of the event
         </label>
         <p class="helper-text">Tick this and we'll ask for your arrival flight details so we can schedule your pick-up from the airport.</p>
       </div>
