@@ -1,23 +1,6 @@
 // ---------- State ----------
 let currentParty = null; // { uid, matchedName, guests: [{ name, invitedEvents: [{name, dateTime}] }] }
 let airportsCache = null; // loaded once on first form render
-const MAX_FILES_PER_SLOT = 5;
-const MAX_FILE_BYTES = 10 * 1024 * 1024; // keep in sync with MAX_FILE_BYTES in Code.gs
-
-/** Friendly pre-check so guests find out immediately; the server re-checks the real file contents. */
-function uploadProblem(file) {
-  const okType = /^(image\/(jpeg|png|webp|heic|heif)|application\/pdf)$/i.test(file.type || '');
-  const okExt = /\.(jpe?g|png|webp|heic|heif|pdf)$/i.test(file.name || '');
-  // Some browsers report an empty type for HEIC, so fall back to the extension then.
-  if (!okType && !(okExt && (!file.type || file.type === 'application/octet-stream'))) {
-    return 'not a supported file type (use JPG, PNG, WebP, HEIC or PDF)';
-  }
-  if (file.size > MAX_FILE_BYTES) {
-    return 'larger than ' + Math.round(MAX_FILE_BYTES / 1048576) + ' MB';
-  }
-  return '';
-}
-
 // ---------- Helpers ----------
 function show(screenId) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
@@ -97,15 +80,6 @@ async function loadAirports() {
   const res = await fetch('data/airports.json');
   airportsCache = await res.json();
   return airportsCache;
-}
-
-function fileToBase64(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result.split(',')[1]);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
 }
 
 function escapeHtml(str) {
@@ -206,7 +180,7 @@ document.getElementById('back-from-not-leader-btn').addEventListener('click', ()
 
 document.getElementById('form-back-btn').addEventListener('click', () => {
   clearUidFromUrl();
-  revokeCardObjectUrls();
+  destroyCardWidgets();
   currentParty = null;
   document.getElementById('rsvp-form').reset();
   document.getElementById('guests-container').innerHTML = '';
@@ -217,7 +191,7 @@ document.getElementById('form-back-btn').addEventListener('click', () => {
 
 document.getElementById('return-home-btn').addEventListener('click', () => {
   clearUidFromUrl();
-  revokeCardObjectUrls();
+  destroyCardWidgets();
   currentParty = null;
   document.getElementById('name-input').value = '';
   document.getElementById('rsvp-form').reset();
@@ -228,17 +202,10 @@ document.getElementById('return-home-btn').addEventListener('click', () => {
   show('welcome-screen');
 });
 
-// Revoke all object URLs held in guest card slot state before the form is torn down.
-// Also destroy any intl-tel-input instances to avoid memory leaks.
-function revokeCardObjectUrls() {
+// Destroy any intl-tel-input instances before the form is torn down, to avoid memory leaks.
+function destroyCardWidgets() {
   document.querySelectorAll('.guest-card').forEach(card => {
     if (card._iti) { try { card._iti.destroy(); } catch (e) {} card._iti = null; }
-    if (!card._docSlots) return;
-    Object.values(card._docSlots).forEach(state => {
-      (state.newFiles || []).forEach(f => {
-        if (f.objectUrl) URL.revokeObjectURL(f.objectUrl);
-      });
-    });
   });
 }
 
@@ -408,31 +375,6 @@ function renderGuestForms(guests, pickupRequired) {
       ${attendanceHtml}
 
       ${travelDetailsHtml}
-      <label>Attachment(s) for verification (Foreigners = Passport + Visa/OCI, Locals = Aadhar Card)<span class="req">*</span></label>
-      <p class="helper-text">Required by hotels under local Indian law for all guests. You can upload up to 5 pages/photos per document.</p>
-
-      <label class="checkbox-label" style="margin-top:12px;">
-        <input type="checkbox" class="local-indian-checkbox" ${(saved.localIndian || '').toLowerCase() === 'yes' ? 'checked' : ''} />
-        Local Indian?
-      </label>
-
-      <div class="doc-slots" style="margin-top:16px;">
-        <!-- Foreigner slots -->
-        <div class="doc-slot foreigner-slot" data-slot="Passport">
-          <div class="doc-slot-label">Passport <span class="req">*</span></div>
-          <div class="doc-slot-control"></div>
-        </div>
-        <div class="doc-slot foreigner-slot" data-slot="Visa / OCI">
-          <div class="doc-slot-label">Visa / OCI <span class="req">*</span></div>
-          <div class="doc-slot-control"></div>
-        </div>
-        <!-- Local slot -->
-        <div class="doc-slot local-slot" data-slot="Aadhar Card">
-          <div class="doc-slot-label">Aadhar Card <span class="req">*</span></div>
-          <div class="doc-slot-control"></div>
-        </div>
-      </div>
-
       <h3 style="margin-top:28px;">Optional</h3>
       <label>Food allergies / dietary requirements</label>
       <textarea class="food-allergies" rows="2" maxlength="200" placeholder="e.g. peanuts, shellfish, vegetarian">${escapeHtml(saved.foodAllergies || '')}</textarea>
@@ -446,16 +388,6 @@ function renderGuestForms(guests, pickupRequired) {
     `;
     container.appendChild(card);
 
-    // Per-slot state: { existingFiles: [{fileName, id}], newFiles: [{ file: File, objectUrl: string }] }
-    // Up to MAX_FILES_PER_SLOT combined (existing + new) per slot.
-    // objectUrls are created once on file selection and revoked explicitly on removal or form teardown.
-    card._docSlots = {
-      'Passport':    { existingFiles: (saved.passport    || []).slice(), newFiles: [] },
-      'Visa / OCI':  { existingFiles: (saved.visaOci     || []).slice(), newFiles: [] },
-      'Aadhar Card': { existingFiles: (saved.aadharCard  || []).slice(), newFiles: [] }
-    };
-
-    renderDocSlots(card);
     initCardWidgets(card, saved);
 
     // Clear field-error highlight on any plain input/select interaction
@@ -463,7 +395,6 @@ function renderGuestForms(guests, pickupRequired) {
       el.addEventListener('input', () => el.classList.remove('field-error'));
       el.addEventListener('change', () => el.classList.remove('field-error'));
     });
-    // Doc slots: clear on any upload/remove (re-render handles it via renderDocSlots)
 
     // Show/hide everything else based on the attending checkbox
     const attendingBox = card.querySelector('.attending-checkbox');
@@ -527,30 +458,6 @@ function renderGuestForms(guests, pickupRequired) {
       }
     });
     pickupBox.addEventListener('change', updateTravelUI);
-  });
-
-  container.querySelectorAll('.local-indian-checkbox').forEach(checkbox => {
-    checkbox.addEventListener('change', () => {
-      const card = checkbox.closest('.guest-card');
-      // Slots that no longer apply for the newly-selected identity type must be
-      // cleared out entirely (not just hidden) — otherwise their existingFiles
-      // stay in card._docSlots and get resubmitted as "kept" on submit, which
-      // stops the backend from ever trashing the old Drive file / clearing the
-      // sheet link for the slot the guest no longer needs.
-      const slotsToClear = checkbox.checked
-        ? ['Passport', 'Visa / OCI']   // now Local Indian -> foreigner slots no longer apply
-        : ['Aadhar Card'];             // now foreigner -> local slot no longer applies
-
-      slotsToClear.forEach(slotName => {
-        const state = card._docSlots[slotName];
-        if (!state) return;
-        state.newFiles.forEach(f => { if (f.objectUrl) URL.revokeObjectURL(f.objectUrl); });
-        state.existingFiles = [];
-        state.newFiles = [];
-      });
-
-      renderDocSlots(card);
-    });
   });
 }
 
@@ -749,151 +656,6 @@ async function initCardWidgets(card, saved) {
   });
 }
 
-// Renders the three document slots (Passport, Visa/OCI, Aadhar Card) for a guest card.
-// Shows/hides foreigner vs local slots based on the Local Indian checkbox.
-// Each slot shows a list of existing files (filename+✕) and new-file previews (thumbnail+✕),
-// plus an "add more" upload button as long as the combined total is under MAX_FILES_PER_SLOT.
-function renderDocSlots(card) {
-  const isLocal = card.querySelector('.local-indian-checkbox').checked;
-
-  card.querySelectorAll('.doc-slot').forEach(slot => {
-    const isForeignerSlot = slot.classList.contains('foreigner-slot');
-    const isLocalSlot = slot.classList.contains('local-slot');
-    // Show the right slots for the selected identity type
-    slot.style.display = (isLocal ? isLocalSlot : isForeignerSlot) ? 'block' : 'none';
-
-    const slotName = slot.dataset.slot;
-    const state = card._docSlots[slotName];
-    const control = slot.querySelector('.doc-slot-control');
-    control.innerHTML = '';
-
-    const totalCount = state.existingFiles.length + state.newFiles.length;
-
-    // Existing files already saved in Drive: filename + X to remove
-    if (state.existingFiles.length) {
-      const list = document.createElement('div');
-      list.className = 'existing-files-list';
-      state.existingFiles.forEach((existingFile, i) => {
-        const item = document.createElement('div');
-        item.className = 'existing-file-item';
-
-        const icon = document.createElement('span');
-        icon.className = 'existing-file-icon';
-        icon.textContent = '📎';
-
-        const label = document.createElement('span');
-        label.className = 'existing-file-name';
-        label.textContent = existingFile.fileName;
-
-        const removeBtn = document.createElement('button');
-        removeBtn.type = 'button';
-        removeBtn.className = 'existing-file-remove';
-        removeBtn.setAttribute('aria-label', `Remove ${existingFile.fileName}`);
-        removeBtn.textContent = '✕';
-        removeBtn.addEventListener('click', () => {
-          state.existingFiles.splice(i, 1);
-          renderDocSlots(card);
-        });
-
-        item.appendChild(icon);
-        item.appendChild(label);
-        item.appendChild(removeBtn);
-        list.appendChild(item);
-      });
-      control.appendChild(list);
-    }
-
-    // Newly added files this session: thumbnail preview + X to remove
-    if (state.newFiles.length) {
-      const previews = document.createElement('div');
-      previews.className = 'file-previews';
-      state.newFiles.forEach((newFile, i) => {
-        const item = document.createElement('div');
-        item.className = 'file-preview-item';
-
-        const thumb = document.createElement('div');
-        thumb.className = 'file-preview-thumb';
-        if (newFile.objectUrl) {
-          // objectUrl was created once when the file was selected; reuse it here
-          // so re-renders (e.g. toggling Local Indian) never produce a broken image.
-          const img = document.createElement('img');
-          img.src = newFile.objectUrl;
-          thumb.appendChild(img);
-        } else {
-          thumb.textContent = 'PDF';
-          thumb.classList.add('file-preview-thumb-pdf');
-        }
-
-        const label = document.createElement('div');
-        label.className = 'file-preview-name';
-        label.textContent = newFile.file.name;
-
-        const removeBtn = document.createElement('button');
-        removeBtn.type = 'button';
-        removeBtn.className = 'file-preview-remove';
-        removeBtn.setAttribute('aria-label', `Remove ${newFile.file.name}`);
-        removeBtn.textContent = '✕';
-        removeBtn.addEventListener('click', () => {
-          // Revoke here — the only place the URL is discarded — not on img.onload.
-          if (newFile.objectUrl) URL.revokeObjectURL(newFile.objectUrl);
-          state.newFiles.splice(i, 1);
-          renderDocSlots(card);
-        });
-
-        item.appendChild(thumb);
-        item.appendChild(label);
-        item.appendChild(removeBtn);
-        previews.appendChild(item);
-      });
-      control.appendChild(previews);
-    }
-
-    // "Add more" upload button, shown as long as we're under the per-slot cap
-    if (totalCount < MAX_FILES_PER_SLOT) {
-      const hiddenInput = document.createElement('input');
-      hiddenInput.type = 'file';
-      hiddenInput.accept = 'image/*,application/pdf';
-      hiddenInput.multiple = true;
-      hiddenInput.style.display = 'none';
-
-      const uploadBtn = document.createElement('button');
-      uploadBtn.type = 'button';
-      uploadBtn.className = 'add-files-btn';
-      uploadBtn.style.marginTop = totalCount ? '12px' : '0';
-      uploadBtn.textContent = totalCount ? `+ Add another ${slotName} page` : `+ Upload ${slotName}`;
-
-      uploadBtn.addEventListener('click', () => hiddenInput.click());
-      hiddenInput.addEventListener('change', () => {
-        const remaining = MAX_FILES_PER_SLOT - (state.existingFiles.length + state.newFiles.length);
-        const rejected = [];
-        const filesToAdd = Array.from(hiddenInput.files).filter(file => {
-          const problem = uploadProblem(file);
-          if (problem) rejected.push(`"${file.name}" is ${problem}`);
-          return !problem;
-        }).slice(0, Math.max(remaining, 0));
-        if (rejected.length) {
-          setError('form-error', 'Not added: ' + rejected.join('; ') + '.');
-          document.getElementById('form-error').scrollIntoView({ behavior: 'smooth', block: 'center' });
-        }
-        filesToAdd.forEach(file => {
-          const objectUrl = file.type && file.type.startsWith('image/') ? URL.createObjectURL(file) : null;
-          state.newFiles.push({ file, objectUrl });
-        });
-        renderDocSlots(card);
-      });
-
-      control.appendChild(hiddenInput);
-      control.appendChild(uploadBtn);
-    } else {
-      const maxNote = document.createElement('p');
-      maxNote.className = 'helper-text';
-      maxNote.style.margin = '10px 0 0';
-      maxNote.textContent = `Maximum of ${MAX_FILES_PER_SLOT} files reached for ${slotName}.`;
-      control.appendChild(maxNote);
-    }
-  });
-}
-
 // ---------- Screen 2: Submit ----------
 // Belt-and-suspenders: force novalidate in case the attribute is ever lost
 // (e.g. dynamic re-render). Native HTML5 validation on <select required> is
@@ -915,7 +677,7 @@ document.getElementById('rsvp-form').addEventListener('submit', async (e) => {
   const guestsPayload = [];
 
   // Validation below runs in the same top-down order fields appear in the
-  // card: full name -> phone -> attendance -> travel details -> documents.
+  // card: full name -> phone -> attendance -> travel details.
   for (const card of guestCards) {
     const name = card.dataset.guestName;
 
@@ -1068,34 +830,8 @@ document.getElementById('rsvp-form').addEventListener('submit', async (e) => {
       }
     }
 
-    // ---------- 5. Documents ----------
-    const isLocal = card.querySelector('.local-indian-checkbox').checked;
-    const slots = card._docSlots;
-
-    // Determine which slots are required based on Local Indian status
-    const requiredSlots = isLocal ? ['Aadhar Card'] : ['Passport', 'Visa / OCI'];
-    for (const slotName of requiredSlots) {
-      const state = slots[slotName];
-      if (!state.existingFiles.length && !state.newFiles.length) {
-        const el = card.querySelector(`.doc-slot[data-slot="${slotName}"]`);
-        setError('form-error', `Please upload a ${slotName} for ${name}.`);
-        flagField(el);
-        return;
-      }
-    }
-
-    // Build per-slot payload
-    const docSlotPayload = {};
-    for (const [slotName, state] of Object.entries(slots)) {
-      docSlotPayload[slotName] = {
-        existingIds: state.existingFiles.map(f => f.id),
-        newFiles: state.newFiles.map(f => f.file)
-      };
-    }
-
     guestsPayload.push({
       name, attendingWedding: 'Yes', fullName, phone,
-      localIndian: isLocal ? 'Yes' : 'No',
       travellingOverseas: overseasChecked ? 'Yes' : 'No',
       travellingDomestically: domesticChecked ? 'Yes' : 'No',
       airportPickup: airportPickup ? 'Yes' : 'No',
@@ -1103,8 +839,7 @@ document.getElementById('rsvp-form').addEventListener('submit', async (e) => {
       foodAllergies: card.querySelector('.food-allergies').value.trim(),
       songRequests: card.querySelector('.song-requests').value.trim(),
       messageForCouple: card.querySelector('.couple-message').value.trim(),
-      attendance,
-      docSlots: docSlotPayload
+      attendance
     });
   }
 
@@ -1112,23 +847,6 @@ document.getElementById('rsvp-form').addEventListener('submit', async (e) => {
   submitBtn.innerHTML = 'Submitting <span class="loading-dot"></span>';
 
   try {
-    for (const guest of guestsPayload) {
-      if (!guest.docSlots) continue; // not attending: nothing to upload
-      const encodedSlots = {};
-      for (const [slotName, slot] of Object.entries(guest.docSlots)) {
-        encodedSlots[slotName] = { existingIds: slot.existingIds, newFiles: [] };
-        for (const file of slot.newFiles) {
-          const base64 = await fileToBase64(file);
-          encodedSlots[slotName].newFiles.push({
-            name: file.name,
-            mimeType: file.type || 'application/octet-stream',
-            base64
-          });
-        }
-      }
-      guest.docSlots = encodedSlots;
-    }
-
     const res = await fetch(API_URL, {
       method: 'POST',
       body: JSON.stringify({ action: 'submit', uid: currentParty.uid, guests: guestsPayload })

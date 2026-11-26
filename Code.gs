@@ -38,13 +38,9 @@
  *      it the same way on every row in the party).
  *
  *  Writable (the form fills these in — leave blank, just have the header):
- *    Full Name | Phone Number | Local Indian | Travelling from Overseas |
- *    Arrival Flight Number | Arrival Travel Date | Arrival Travel Time | Arrival Airport |
- *    Passport | Visa / OCI | Aadhar Card
+ *    Full Name | Phone Number | Travelling from Overseas |
+ *    Arrival Flight Number | Arrival Travel Date | Arrival Travel Time | Arrival Airport
  *
- *    - "Local Indian": Yes/No, set by a tickbox on the form. Gates which
- *      document slots are shown — Locals see Aadhar Card only; foreigners
- *      see Passport + Visa / OCI.
  *    - "Travelling from Overseas" and "Travelling Domestically" are two
  *      mutually-exclusive Yes/No tickboxes on the form, only shown at all if
  *      the party's "Pickup" column is ticked. Ticking one greys out the
@@ -59,46 +55,13 @@
  *  right on the first submission (so you can also pre-create them all in
  *  whatever order you like — see README.md for the recommended order).
  *
- *  Uploaded verification photos are saved into Drive under a folder called
- *  UPLOAD_FOLDER_NAME, with one SUBFOLDER PER GUEST — named after their
- *  "Name" column value (NOT "Full Name"), so the folder stays stable even if
- *  someone edits their Full Name later — no orphan folders pile up. Inside
- *  each guest's folder, there's a further subfolder per document type
- *  (Passport / Visa / OCI / Aadhar Card), e.g.
- *  UPLOAD_FOLDER_NAME/Guest Name/Passport/page1.jpg — so multi-page uploads
- *  for the same document stay grouped together. If a document type no
- *  longer applies to a guest (e.g. they switch their "Local Indian" status)
- *  or ends up with no files left in it, its entire subfolder is deleted from
- *  Drive, not just the files inside it — no empty/orphaned folders are left
- *  behind.
- *
  *  If "Pickup" is ticked for a party, guests must tick exactly one of
  *  "Travelling from overseas" or "Travelling domestically" to submit — the
  *  form will not let them submit with neither ticked.
  *
- *  Each document slot accepts up to MAX_FILES_PER_SLOT files (currently 5).
- *  The sheet cell for that slot stores one Drive link per line.
- *
- *  RE-VISITING THE FORM: when the party leader looks up their name again, the
- *  form comes back pre-filled with whatever was last submitted (so they can
- *  edit it instead of starting over). For privacy, previously uploaded
- *  attachments are shown as FILENAMES ONLY (no image preview, no direct
- *  link) — the leader can remove any of them (which deletes that file from
- *  Drive on the next submit) or add new ones alongside the existing ones.
- *
  * SECURITY NOTES:
- *  - Uploaded files are PRIVATE: they are never link-shared, so only you (the
- *    Drive owner) and anyone you explicitly share the folder with can open them.
- *    The Drive links stored in the sheet therefore only work for those people.
- *    Files uploaded by an EARLIER version of this script were link-shared; run
- *    RSVP > Make existing uploads private once to lock those down.
- *  - The browser never receives Drive URLs — only a file ID + filename for each
- *    stored file. On submit the browser sends back only the IDs it wants to
- *    keep, and those are matched against what THAT party's row already holds;
- *    anything else is ignored, so a request can never trash another file.
- *  - Every upload is checked on the server (real file signature, allow-listed
- *    type, size cap) BEFORE anything is written. Text going into the sheet is
- *    length-capped and neutralised so it can't be run as a spreadsheet formula.
+ *  - Text going into the sheet is length-capped and neutralised so it can't be
+ *    run as a spreadsheet formula. Only events the party is invited to can be written to.
  *  - Guest lookups and submissions are POST requests, so the UID never appears
  *    in a URL. Internal error details are logged, not sent to the browser.
  *
@@ -115,14 +78,10 @@ const EVENT_INFO = {
 
 const EVENT_COLUMNS = ['Mehndi', 'Haldi', 'Sangeet', 'Vidhi', 'Tea Ceremony', 'Dinner'];
 const SHEET_NAME = 'Sheet1'; // change if your tab is named differently
-const UPLOAD_FOLDER_NAME = 'RSVP Uploads - Han Seng & Tanaaz';
 const UID_LENGTH = 10;
 const UID_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // 32 chars; no I/O/0/1 so codes are easy to read out. 32^10 ≈ 1.1e15 combinations.
-const MAX_FILE_BYTES = 10 * 1024 * 1024; // per uploaded file, measured after decoding (keep in sync with MAX_FILE_BYTES in app.js)
 const MAX_TEXT_LENGTH = 200;             // cap on every free-text value written to the sheet
-const ALLOWED_UPLOAD_TYPES = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/heic': 'heic', 'application/pdf': 'pdf' };
 const GENERIC_ERROR = 'Something went wrong on our side. Please try again, or contact Han Seng or Tanaaz.';
-const MAX_FILES_PER_SLOT = 5; // per document type (Passport / Visa / OCI / Aadhar Card), matches the form's limit
 
 /** GET is no longer used for anything: guest lookups carry the UID, so they are
  *  POST requests (a GET would put the UID in the URL, browser history and logs). */
@@ -320,25 +279,10 @@ function buildSavedData(rowData, headers, invitedEvents) {
     attendance[ev.name] = get(`${ev.name} - Attending`);
   });
 
-  // Return each document slot as an array so the form can show every
-  // existing file (filename + ✕) for that slot, not just the first one.
-  // Only { id, fileName } goes to the browser — never the Drive URL. (Files are
-  // private anyway; this just means no link leaves the server.) Cell lines that
-  // aren't a real Drive file link (e.g. a failed upload marker) are left out.
-  const makeSlot = colName => {
-    const out = [];
-    getLinksFromCell(rawGet(colName)).forEach(url => {
-      const id = extractDriveFileId(url);
-      if (id) out.push({ id: id, fileName: getFileNameFromUrl(url) });
-    });
-    return out;
-  };
-
   return {
     attendingWedding: get('Attending Wedding'),
     fullName: get('Full Name'),
     phone: get('Phone Number'),
-    localIndian: get('Local Indian'),
     travellingOverseas: get('Travelling from Overseas'),
     travellingDomestically: get('Travelling Domestically'),
     airportPickup: get('Airport Pickup Required'),
@@ -349,10 +293,7 @@ function buildSavedData(rowData, headers, invitedEvents) {
     arrivalDate: getDate('Arrival Travel Date'),
     arrivalTime: getTime('Arrival Travel Time'),
     arrivalAirport: get('Arrival Airport'),
-    attendance: attendance,
-    passport:   makeSlot('Passport'),
-    visaOci:    makeSlot('Visa / OCI'),
-    aadharCard: makeSlot('Aadhar Card')
+    attendance: attendance
   };
 }
 
@@ -366,10 +307,8 @@ function buildSavedData(rowData, headers, invitedEvents) {
  *       fullName, phone,
  *       travellingOverseas,    // "Yes" or "No"
  *       arrivalFlightNumber, arrivalDate, arrivalTime, arrivalAirport,  // only present/used if travellingOverseas === "Yes"
- *       attendance: { "Mehndi": "Yes", "Haldi": "No" },   // only invited events
- *       docSlots: { "Passport": { existingIds: ["<Drive file id>", ...],   // stored files the user chose to KEEP
- *                                 newFiles: [{ name, base64 }, ...] } }   // newly added files
- *     }, ...
+ *       attendance: { "Mehndi": "Yes", "Haldi": "No" }    // only invited events
+ * *     }, ...
  *   ]
  * }
  */
@@ -385,23 +324,16 @@ function submitRsvp(payload) {
     return { error: 'Your invitation code is missing or invalid. Please return to the homepage and enter it again.' };
   }
 
-  // Check every uploaded file BEFORE writing anything, so a bad file can't
-  // leave the sheet half-updated. On success each file object gains _bytes/_type.
-  const uploadError = validateUploads(payload);
-  if (uploadError) return { error: uploadError };
-
   const sheet = getSheet();
   let headers = getHeaders(sheet);
-  const folder = getOrCreateUploadFolder();
 
   // Fix the column structure up front, in order, so it never depends on
   // which events happen to be submitted first: all "<Event> - Attending"
-  // columns (in EVENT_COLUMNS order) come right after the arrival info,
-  // then the three document columns and Local Indian at the very end.
+  // columns (in EVENT_COLUMNS order) come right after the arrival info.
   EVENT_COLUMNS.forEach(eventName => {
     ensureColumn(sheet, headers, `${eventName} - Attending`);
   });
-  ['Local Indian', 'Passport', 'Visa / OCI', 'Aadhar Card', 'Travelling Domestically', 'Attending Wedding',
+  ['Travelling Domestically', 'Attending Wedding',
    'Airport Pickup Required', 'Food Allergies', 'Song Requests', 'Message for the Couple'].forEach(colName => {
     ensureColumn(sheet, headers, colName);
   });
@@ -425,32 +357,21 @@ function submitRsvp(payload) {
 
     // "Can this person attend the wedding at all?" Anything other than an
     // explicit Yes is treated as No: the row is marked as not attending, every
-    // invited event is set to No, and all other answers (and any uploaded ID
-    // documents) are cleared, so nothing personal is kept for someone who isn't coming.
+    // invited event is set to No, and all other answers are cleared,
+    // so nothing personal is kept for someone who isn't coming.
     if (String(guest.attendingWedding || '').trim().toLowerCase() !== 'yes') {
       writeCell(sheet, headers, rowNum, 'Attending Wedding', 'No');
-      ['Full Name', 'Phone Number', 'Local Indian', 'Travelling from Overseas', 'Travelling Domestically',
+      ['Full Name', 'Phone Number', 'Travelling from Overseas', 'Travelling Domestically',
        'Airport Pickup Required', 'Arrival Flight Number', 'Arrival Travel Date', 'Arrival Travel Time', 'Arrival Airport',
        'Food Allergies', 'Song Requests', 'Message for the Couple'
       ].forEach(colName => writeCell(sheet, headers, rowNum, colName, ''));
       invitedEventNames.forEach(eventName => writeCell(sheet, headers, rowNum, `${eventName} - Attending`, 'No'));
-
-      const declinerFolder = getOrCreatePersonFolder(folder, String(match.rowData[colIndex(headers, 'Name')]).trim());
-      ['Passport', 'Visa / OCI', 'Aadhar Card'].forEach(slotName => {
-        getLinksFromCell(getPreviousSlotUrl(match.rowData, headers, slotName)).forEach(url => {
-          const id = extractDriveFileId(url);
-          if (id) { try { DriveApp.getFileById(id).setTrashed(true); } catch (e) {} }
-        });
-        trashSlotFolder(declinerFolder, slotName);
-        writeCell(sheet, headers, rowNum, slotName, '');
-      });
       return;
     }
     writeCell(sheet, headers, rowNum, 'Attending Wedding', 'Yes');
 
     writeCell(sheet, headers, rowNum, 'Full Name', cleanText(guest.fullName));
     writeCell(sheet, headers, rowNum, 'Phone Number', cleanText(guest.phone, 40));
-    writeCell(sheet, headers, rowNum, 'Local Indian', yesNo(guest.localIndian));
 
     // "Pickup" gates the whole overseas/arrival block. It comes from the
     // sheet (via the verified UID's party), never from the payload, so the
@@ -483,93 +404,6 @@ function submitRsvp(payload) {
       if (sent !== 'yes' && sent !== 'no') return;
       writeCell(sheet, headers, rowNum, `${eventName} - Attending`, sent === 'yes' ? 'Yes' : 'No');
     });
-
-    // Document slots: Passport, Visa / OCI, Aadhar Card — each can now hold
-    // up to MAX_FILES_PER_SLOT files. Each slot type gets its own Drive
-    // subfolder inside the guest's personal folder (e.g. .../Guest Name/Passport/).
-    // Kept existing files (by Drive file ID) are left untouched; any previously stored
-    // file whose ID is no longer in the kept list was removed by the user
-    // and gets trashed. New files are uploaded into that slot's subfolder.
-    // The cell stores one URL per line, in existing-then-new order.
-    // Folder is named from the sheet's own "Name" value, not whatever the browser sent.
-    const personFolder = getOrCreatePersonFolder(folder, String(match.rowData[colIndex(headers, 'Name')]).trim());
-    const DOC_SLOTS = ['Passport', 'Visa / OCI', 'Aadhar Card'];
-    const isLocalIndian = String(guest.localIndian || '').trim().toLowerCase() === 'yes';
-    // Slots that don't apply to this guest's current identity type are always
-    // treated as empty server-side, regardless of what the client sent. This
-    // is a safety net: even if the browser resubmits a stale existingUrl for
-    // a slot that no longer applies (e.g. after switching Local Indian
-    // status), the old file still gets trashed and the cell still gets
-    // cleared, instead of the orphaned link lingering forever.
-    const applicableSlots = isLocalIndian ? ['Aadhar Card'] : ['Passport', 'Visa / OCI'];
-
-    DOC_SLOTS.forEach(slotName => {
-      const slotApplies = applicableSlots.indexOf(slotName) !== -1;
-
-      // Slot no longer applies at all for this guest (e.g. they switched
-      // Local Indian status) — remove its entire subfolder, including every
-      // file inside it, rather than leaving an empty/orphaned folder behind.
-      if (!slotApplies) {
-        trashSlotFolder(personFolder, slotName);
-        writeCell(sheet, headers, rowNum, slotName, '');
-        return;
-      }
-
-      const slot = (guest.docSlots || {})[slotName] || {};
-
-      // The browser only says WHICH stored files to keep, by file ID. Those IDs
-      // are matched against what THIS row already has in the sheet, so a made-up
-      // or foreign ID is simply ignored — and only files already stored in this
-      // row can ever be trashed. Stored files not listed as kept were removed by
-      // the user and are trashed.
-      const keptIds = Array.isArray(slot.existingIds) ? slot.existingIds.map(String) : [];
-      const prevUrls = getLinksFromCell(getPreviousSlotUrl(match.rowData, headers, slotName));
-      const keptUrls = [];
-      prevUrls.forEach(prevUrl => {
-        const id = extractDriveFileId(prevUrl);
-        if (!id) return; // not a real Drive link (e.g. an old failed-upload marker): drop it
-        if (keptIds.indexOf(id) !== -1) {
-          keptUrls.push(prevUrl);
-        } else {
-          try { DriveApp.getFileById(id).setTrashed(true); } catch (e) {}
-        }
-      });
-
-      let newFilesData = Array.isArray(slot.newFiles) ? slot.newFiles : [];
-      // Server-side safety net matching the form's MAX_FILES_PER_SLOT cap
-      const remainingSlots = Math.max(MAX_FILES_PER_SLOT - keptUrls.length, 0);
-      newFilesData = newFilesData.slice(0, remainingSlots);
-
-      const finalUrls = keptUrls.slice();
-      if (newFilesData.length) {
-        const slotFolder = getOrCreateSlotFolder(personFolder, slotName);
-        newFilesData.forEach(newFileData => {
-          if (!newFileData || !newFileData._bytes) return; // set by validateUploads()
-          try {
-            // Name and type come from the file's REAL content (validateUploads), not the browser's claim.
-            const stem = cleanFileName(newFileData.name).replace(/\.[^.]*$/, '') || 'upload';
-            const fileName = stem + '.' + ALLOWED_UPLOAD_TYPES[newFileData._type];
-            const blob = Utilities.newBlob(newFileData._bytes, newFileData._type, fileName);
-            const driveFile = slotFolder.createFile(blob);
-            // Files stay PRIVATE. (Previously this was ANYONE_WITH_LINK.) Set
-            // explicitly so a file can't inherit link-sharing from its folder.
-            try { driveFile.setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.NONE); } catch (shareErr) { console.error(shareErr); }
-            finalUrls.push(driveFile.getUrl());
-          } catch (fileErr) {
-            console.error(fileErr);
-            finalUrls.push('UPLOAD FAILED: ' + slotName);
-          }
-        });
-      }
-
-      // If every file was removed and none were added, the slot folder is
-      // now empty — remove it entirely rather than leaving an empty folder.
-      if (!finalUrls.length) {
-        trashSlotFolder(personFolder, slotName);
-      }
-
-      writeCell(sheet, headers, rowNum, slotName, finalUrls.join('\n'));
-    });
   });
 
   return { success: true };
@@ -594,134 +428,6 @@ function cleanText(value, maxLen) {
     .slice(0, maxLen || MAX_TEXT_LENGTH);
 }
 
-function yesNo(value) {
-  return String(value == null ? '' : value).trim().toLowerCase() === 'yes' ? 'Yes' : 'No';
-}
-
-/** A safe display/storage file name: no paths, only simple characters, max 80 chars. */
-function cleanFileName(name) {
-  const base = String(name == null ? '' : name).split(/[\\/]/).pop()
-    .replace(/[^\w.\- ()]/g, '_').trim().slice(0, 80);
-  return base || 'upload';
-}
-
-/** Works out what a file REALLY is from its first bytes (the browser's claimed
- *  type and the file extension are ignored). Returns a key of
- *  ALLOWED_UPLOAD_TYPES, or null if it isn't an allowed type. */
-function sniffUploadType(bytes) {
-  if (!bytes || bytes.length < 12) return null;
-  const b = i => bytes[i] & 0xFF; // Apps Script bytes are signed
-  const ascii = (start, len) => {
-    let s = '';
-    for (let i = start; i < start + len; i++) s += String.fromCharCode(b(i));
-    return s;
-  };
-  if (b(0) === 0xFF && b(1) === 0xD8 && b(2) === 0xFF) return 'image/jpeg';
-  if (b(0) === 0x89 && ascii(1, 3) === 'PNG') return 'image/png';
-  if (ascii(0, 4) === '%PDF') return 'application/pdf';
-  if (ascii(0, 4) === 'RIFF' && ascii(8, 4) === 'WEBP') return 'image/webp';
-  if (ascii(4, 4) === 'ftyp' &&
-      ['heic', 'heix', 'hevc', 'hevx', 'heim', 'heis', 'mif1', 'msf1'].indexOf(ascii(8, 4)) !== -1) return 'image/heic';
-  return null;
-}
-
-/** Decodes and checks every newly uploaded file in the payload. Returns an
- *  error message for the guest, or null if all files are fine. */
-function validateUploads(payload) {
-  const slotNames = ['Passport', 'Visa / OCI', 'Aadhar Card'];
-  for (const guest of payload.guests) {
-    const slots = (guest && guest.docSlots) || {};
-    for (const slotName of slotNames) {
-      const slot = slots[slotName];
-      if (!slot || !Array.isArray(slot.newFiles)) continue;
-      for (const f of slot.newFiles) {
-        if (!f || !f.base64) continue;
-        const label = cleanFileName(f.name);
-        let bytes;
-        try { bytes = Utilities.base64Decode(String(f.base64)); }
-        catch (err) { return '"' + label + '" could not be read. Please remove it and add it again.'; }
-        if (bytes.length > MAX_FILE_BYTES) {
-          return '"' + label + '" is larger than ' + Math.round(MAX_FILE_BYTES / 1048576) + ' MB. Please upload a smaller file.';
-        }
-        const type = sniffUploadType(bytes);
-        if (!type) {
-          return '"' + label + '" is not a supported file type. Please upload a JPG, PNG, WebP, HEIC or PDF.';
-        }
-        f._bytes = bytes;
-        f._type = type;
-        f.base64 = null; // free memory; the decoded bytes are what get saved
-      }
-    }
-  }
-  return null;
-}
-
-/** Pulls the file ID out of a Drive file URL as produced by file.getUrl().
- *  Deliberately strict: any other text (e.g. a failed-upload marker that
- *  happens to contain a long word) must never be treated as a file ID. */
-function extractDriveFileId(url) {
-  const match = String(url || '').trim().match(/^https:\/\/drive\.google\.com\/file\/d\/([-\w]{25,})(?:[\/?#]|$)/);
-  return match ? match[1] : null;
-}
-
-/** Best-effort filename lookup for a stored Drive link; falls back gracefully. */
-function getFileNameFromUrl(url) {
-  const id = extractDriveFileId(url);
-  if (!id) return 'Attachment';
-  try {
-    return DriveApp.getFileById(id).getName();
-  } catch (err) {
-    return 'Attachment (file may have been moved or deleted)';
-  }
-}
-
-/** Returns the Drive URL currently stored for a specific doc slot column, or '' if empty. */
-function getPreviousSlotUrl(rowData, headers, colName) {
-  const c = colIndex(headers, colName);
-  if (c === -1) return '';
-  return String(rowData[c] || '').trim();
-}
-
-/** Splits a cell value into an array of non-empty strings (handles newline-separated values). */
-function getLinksFromCell(cellValue) {
-  if (!cellValue) return [];
-  return String(cellValue).split('\n').map(s => s.trim()).filter(Boolean);
-}
-
-function getOrCreateUploadFolder() {
-  const folders = DriveApp.getFoldersByName(UPLOAD_FOLDER_NAME);
-  if (folders.hasNext()) return folders.next();
-  return DriveApp.createFolder(UPLOAD_FOLDER_NAME);
-}
-
-/** Each guest gets their own subfolder (by name) inside the main upload folder. */
-function getOrCreatePersonFolder(parentFolder, personName) {
-  const safeName = String(personName || 'Guest').trim() || 'Guest';
-  const existing = parentFolder.getFoldersByName(safeName);
-  if (existing.hasNext()) return existing.next();
-  return parentFolder.createFolder(safeName);
-}
-
-/** Within a guest's folder, each document type (Passport, Visa / OCI, Aadhar
- *  Card) gets its own subfolder, so multi-page uploads for that document
- *  stay grouped together, e.g. .../Guest Name/Passport/page1.jpg. */
-function getOrCreateSlotFolder(personFolder, slotName) {
-  const existing = personFolder.getFoldersByName(slotName);
-  if (existing.hasNext()) return existing.next();
-  return personFolder.createFolder(slotName);
-}
-
-/** Trashes a guest's slot subfolder (and everything inside it), if it exists.
- *  Used when a document type no longer applies to the guest (e.g. they
- *  switched Local Indian status) or ends up with no files left in it — so no
- *  empty/orphaned folder is left behind in Drive. */
-function trashSlotFolder(personFolder, slotName) {
-  const existing = personFolder.getFoldersByName(slotName);
-  while (existing.hasNext()) {
-    try { existing.next().setTrashed(true); } catch (e) {}
-  }
-}
-
 // ============================================================
 // UID generation
 // ============================================================
@@ -731,7 +437,7 @@ function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('RSVP')
     .addItem('Generate missing UIDs', 'generateMissingUids')
-    .addItem('Make existing uploads private', 'makeExistingUploadsPrivate')
+    .addItem('Remove retired document columns', 'removeRetiredColumns')
     .addToUi();
 }
 
@@ -808,29 +514,35 @@ function generateMissingUids() {
 }
 
 // ============================================================
-// One-time clean-up for files uploaded by the earlier version
+// One-time clean-up of the retired ID-document columns
 // ============================================================
 
 /**
- * Earlier versions made every uploaded file "anyone with the link can view".
- * This switches every file (and folder) under the upload folder back to
- * PRIVATE. Run it once after deploying this version; it is safe to re-run.
- * It does not remove people you have shared the folder with by email.
+ * The site no longer collects ID documents, so these columns are obsolete.
+ * Run RSVP > Remove retired document columns ONCE to delete them from the
+ * sheet (after confirming). Any data in them is permanently deleted. Safe to
+ * re-run; it does nothing if the columns are already gone.
  */
-function makeExistingUploadsPrivate() {
-  const root = getOrCreateUploadFolder();
-  let fileCount = 0;
-  const lock = target => {
-    try { target.setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.NONE); return true; }
-    catch (err) { console.error(err); return false; }
-  };
-  const walk = folder => {
-    lock(folder);
-    const files = folder.getFiles();
-    while (files.hasNext()) { if (lock(files.next())) fileCount++; }
-    const subfolders = folder.getFolders();
-    while (subfolders.hasNext()) walk(subfolders.next());
-  };
-  walk(root);
-  SpreadsheetApp.getActiveSpreadsheet().toast(fileCount + ' file(s) set to private.', 'RSVP', 5);
+function removeRetiredColumns() {
+  const RETIRED = ['Local Indian', 'Passport', 'Visa / OCI', 'Aadhar Card'];
+  const ui = SpreadsheetApp.getUi();
+  const sheet = getSheet();
+  const headers = getHeaders(sheet);
+  const present = RETIRED.filter(name => colIndex(headers, name) !== -1);
+  if (!present.length) {
+    ui.alert('Nothing to remove', 'None of the retired columns were found.', ui.ButtonSet.OK);
+    return;
+  }
+  const answer = ui.alert(
+    'Delete columns?',
+    'This will permanently delete these columns and everything in them:\n\n' + present.join('\n'),
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (answer !== ui.Button.OK) return;
+  // Delete right-to-left so earlier deletions don't shift the later indexes.
+  present
+    .map(name => colIndex(headers, name) + 1)
+    .sort((a, b) => b - a)
+    .forEach(col => sheet.deleteColumn(col));
+  SpreadsheetApp.getActiveSpreadsheet().toast(present.length + ' column(s) removed.', 'RSVP', 5);
 }

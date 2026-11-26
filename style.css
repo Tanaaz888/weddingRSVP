@@ -318,123 +318,6 @@ select {
   cursor: not-allowed;
 }
 
-.file-input-wrap {
-  border: 1px dashed var(--line);
-  padding: 16px;
-  text-align: left;
-}
-.add-files-btn {
-  background: transparent;
-  color: var(--ink);
-  border: 1px solid var(--ink);
-  font-size: calc(var(--fs) * 0.75);
-  padding: 10px 20px;
-}
-.add-files-btn:hover { background: rgba(28,57,52,0.06); }
-
-.existing-files-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-top: 14px;
-}
-.existing-file-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 12px;
-  border: 1px solid var(--line);
-  background: rgba(28,57,52,0.03);
-  font-family: 'Inter', sans-serif;
-  font-size: calc(var(--fs) * 0.8125);
-}
-.existing-file-icon { flex-shrink: 0; }
-.existing-file-name {
-  flex: 1;
-  color: var(--charcoal);
-  word-break: break-word;
-}
-.existing-file-remove {
-  flex-shrink: 0;
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  border: 1px solid var(--line);
-  background: #fff;
-  color: var(--rose);
-  font-size: calc(var(--fs) * 0.6875);
-  line-height: 1;
-  padding: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-}
-.existing-file-remove:hover { background: var(--rose); color: #fff; }
-
-.file-previews {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  margin-top: 14px;
-}
-.file-preview-item {
-  position: relative;
-  width: 140px;
-  font-family: 'Inter', sans-serif;
-}
-.file-preview-thumb {
-  width: 140px;
-  height: 140px;
-  border: 1px solid var(--line);
-  background: #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-}
-.file-preview-thumb img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-.file-preview-thumb-pdf {
-  font-size: calc(var(--fs) * 0.875);
-  font-weight: 600;
-  letter-spacing: 0.05em;
-  color: var(--ink-soft);
-  background: rgba(28,57,52,0.05);
-}
-.file-preview-name {
-  font-size: calc(var(--fs) * 0.75);
-  color: var(--ink-soft);
-  margin-top: 6px;
-  white-space: normal;
-  overflow: visible;
-  text-overflow: unset;
-  word-break: break-word;
-  line-height: 1.4;
-}
-.file-preview-remove {
-  position: absolute;
-  top: -8px;
-  right: -8px;
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  border: 1px solid var(--line);
-  background: #fff;
-  color: var(--rose);
-  font-size: calc(var(--fs) * 0.6875);
-  line-height: 1;
-  padding: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-}
-.file-preview-remove:hover { background: var(--rose); color: #fff; }
-
 /* ---- Validation error highlight ---- */
 @keyframes fieldErrorPulse {
   0%   { box-shadow: 0 0 0 0 rgba(185, 105, 90, 0.5); }
@@ -637,26 +520,6 @@ select {
   white-space: nowrap;
 }
 
-.doc-slots {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.doc-slot {
-  border: 1px solid var(--line);
-  padding: 14px 16px;
-  background: transparent;
-}
-
-.doc-slot-label {
-  font-family: 'Inter', sans-serif;
-  font-size: calc(var(--fs) * 0.8125);
-  font-weight: 600;
-  color: var(--ink);
-  margin-bottom: 10px;
-}
-
 .submit-bar {
   display: flex;
   justify-content: center;
@@ -820,22 +683,16 @@ textarea:focus { border-color: var(--gold); }
 
   /* Easier to tap */
   .actions { align-items: stretch; }
-  .actions button, .submit-bar button, .add-files-btn { min-height: 44px; }
+  .actions button, .submit-bar button { min-height: 44px; }
   .checkbox-label { align-items: flex-start; gap: 12px; }
   .checkbox-label input[type="checkbox"] { width: 22px; height: 22px; flex-shrink: 0; margin: 0; }
-  .existing-file-remove, .file-preview-remove { width: 28px; height: 28px; }
-  .file-preview-remove { top: -10px; right: -10px; }
 
   /* Less padding inside the nested boxes, so the text keeps its width */
   .guest-card { padding: 16px 14px; margin-bottom: 20px; }
   .guest-card h2 { font-size: calc(var(--fs) * 1.375); margin-bottom: 16px; }
   .party-members-block { padding: 14px; }
-  .overseas-fields, .doc-slot, .file-input-wrap { padding: 12px; }
+  .overseas-fields { padding: 12px; }
   .event-row { flex-wrap: wrap; column-gap: 12px; }
-
-  /* Photo previews: two per row, whatever the screen width */
-  .file-preview-item { width: calc(50% - 6px); }
-  .file-preview-thumb { width: 100%; height: auto; aspect-ratio: 1 / 1; }
 
   /* Airport list: let long names wrap instead of being cut off with "..." */
   .airport-option { padding: 12px 14px; }
